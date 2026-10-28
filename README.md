@@ -48,6 +48,7 @@ The repo's llama.cpp checkout has a CUDA build at `/home/nchapman/Code/llama.cpp
 | MiniCPM5-1B | `openbmb/MiniCPM5-1B-GGUF` | `MiniCPM5-1B-Q4_K_M.gguf` | `3d55fac80935ae6456986ad2384b5cbcc4d6c948` | `minicpm5-1b` |
 | LFM2.5-1.2B-Instruct | `unsloth/LFM2.5-1.2B-Instruct-GGUF` | `LFM2.5-1.2B-Instruct-UD-Q4_K_XL.gguf` | `b01cc872e5918b0fdec170003cd854851e3ed854` | `lfm25-1.2b` |
 | Granite 4.0-1B | `unsloth/granite-4.0-1b-GGUF` | `granite-4.0-1b-UD-Q4_K_XL.gguf` | `cfdca559b6af6d2d6c443a5e51d8700ec04d67c9` | `granite4-1b` |
+| Granite 4.0-350M | `unsloth/granite-4.0-350m-GGUF` | `granite-4.0-350m-UD-Q4_K_XL.gguf` | `d6a88cd56438020200760fd8bc03670db0e13fa0` | `granite4-350m` |
 
 Use a pinned Hub commit and explicit local file, because llama.cpp's `-hf` short form fetches the current repo revision. Example for Qwen3.5-0.8B:
 
@@ -63,9 +64,9 @@ hf download unsloth/Qwen3.5-0.8B-GGUF Qwen3.5-0.8B-UD-Q4_K_XL.gguf \
 
 Download each model's listed repo, file, and pinned revision. Start only one model at a time, with `--parallel 1`, and stop it before loading the next to keep unified-memory use bounded. Use `--reasoning off` for Qwen3.5 and MiniCPM5 no-thinking runs; this llama.cpp build deprecates MiniCPM5's `enable_thinking` chat-template override.
 
-Use the model-card sampler settings rather than forcing greedy decoding. Qwen3.5 non-thinking text: temperature 1.0, top-p 1.0, top-k 20, min-p 0.0, presence penalty 2.0. MiniCPM5-1B no-think: temperature 0.7, top-p 0.95. LFM2.5-1.2B-Instruct: temperature 0.1, top-k 50, repeat penalty 1.05 (leave unspecified samplers at the pinned llama.cpp defaults). Granite 4.0-1B: temperature 0, top-p 1, top-k 0. The CLI records sampler settings and uses seed 42; sampling models are seeded, not greedy.
+Use the model-card sampler settings rather than forcing greedy decoding. Qwen3.5 non-thinking text: temperature 1.0, top-p 1.0, top-k 20, min-p 0.0, presence penalty 2.0. MiniCPM5-1B no-think: temperature 0.7, top-p 0.95. LFM2.5-1.2B-Instruct: temperature 0.1, top-k 50, repeat penalty 1.05 (leave unspecified samplers at the pinned llama.cpp defaults). Granite 4.0-1B: temperature 0, top-p 1, top-k 0. Granite 4.0-350M's card example uses generation defaults (greedy); translated to llama.cpp, use temperature 0, top-p 1, top-k 0. The CLI records sampler settings and uses seed 42; sampling models are seeded, not greedy.
 
-Settings were checked against the [Qwen3.5-0.8B](https://huggingface.co/Qwen/Qwen3.5-0.8B) and [Qwen3.5-2B](https://huggingface.co/Qwen/Qwen3.5-2B) cards, the [MiniCPM5-1B card](https://huggingface.co/openbmb/MiniCPM5-1B), [Liquid's LFM2.5-1.2B-Instruct docs](https://docs.liquid.ai/lfm/models/lfm25-1.2b-instruct), and [Granite 4.0 Unsloth docs](https://unsloth.ai/docs/models/tutorials/ibm-granite-4.0).
+Settings were checked against the [Qwen3.5-0.8B](https://huggingface.co/Qwen/Qwen3.5-0.8B) and [Qwen3.5-2B](https://huggingface.co/Qwen/Qwen3.5-2B) cards, the [MiniCPM5-1B card](https://huggingface.co/openbmb/MiniCPM5-1B), [Liquid's LFM2.5-1.2B-Instruct docs](https://docs.liquid.ai/lfm/models/lfm25-1.2b-instruct), [Granite 4.0-1B Unsloth docs](https://unsloth.ai/docs/models/tutorials/ibm-granite-4.0), and the [Granite 4.0-350M model card](https://huggingface.co/ibm-granite/granite-4.0-350m). We use the non-H 350M dense model because IBM identifies it as the traditional architecture intended for compatibility with llama.cpp and PEFT; avoid confusing it with the separate hybrid `granite-4.0-h-350m` variant.
 
 In another shell, run the same frozen pilot for each served model:
 
