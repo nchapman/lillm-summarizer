@@ -4,10 +4,26 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from tinyllm_eval.cli import prepare_dataset
+from tinyllm_eval.cli import judge_predictions, prepare_dataset
 
 
 class PrepareDatasetTests(unittest.TestCase):
+    def test_judge_requires_openrouter_key(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            args = SimpleNamespace(
+                input=root / "predictions.jsonl",
+                output=root / "judgments.jsonl",
+                limit=None,
+                overwrite=False,
+                base_url="https://example.invalid/v1",
+                model="test-judge",
+                timeout=10,
+            )
+            with patch.dict("os.environ", {}, clear=True):
+                with self.assertRaisesRegex(RuntimeError, "OPENROUTER_API_KEY"):
+                    judge_predictions(args)
+
     def test_refuses_to_overwrite_existing_sample_by_default(self):
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory) / "pilot.jsonl"

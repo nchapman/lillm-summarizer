@@ -4,14 +4,19 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 from .core import (
+    OPENROUTER_API_KEY_ENV,
+    OPENROUTER_BASE_URL,
+    OPENROUTER_DEFAULT_MODEL,
     PROMPT_VERSION,
     load_jsonl,
+    request_judgment,
     request_summary,
     sample_stream,
     sha256_file,
@@ -112,6 +117,68 @@ def run_evaluation(args: argparse.Namespace) -> None:
     print(f"Run metadata: {metadata_path}")
 
 
+def judge_predictions(args: argparse.Namespace) -> None:
+    api_key = os.environ.get(OPENROUTER_API_KEY_ENV)
+    if not api_key:
+        raise RuntimeError(f"Set {OPENROUTER_API_KEY_ENV} in your environment before judging")
+    records = load_jsonl(args.input)
+    if args.limit is not None:
+        if args.limit <= 0:
+            raise ValueError("--limit must be greater than zero")
+        records = records[: args.limit]
+    if any(not isinstance(row.get("prediction"), str) or not row["prediction"].strip() for row in records):
+        raise ValueError("Every judged record must include a non-empty 'prediction'")
+    if args.output.exists() and not args.overwrite:
+        raise FileExistsError(f"Output already exists: {args.output}; pass --overwrite to replace it")
+    args.output.parent.mkdir(parents=True, exist_ok=True)
+    temporary_output = args.output.with_suffix(args.output.suffix + ".tmp")
+    metadata_path = args.output.with_suffix(args.output.suffix + ".meta.json")
+    active_metadata_path = metadata_path.with_suffix(metadata_path.suffix + ".tmp")
+    run_metadata = {
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "input": str(args.input),
+        "input_sha256": sha256_file(args.input),
+        "judge_model": args.model,
+        "example_count": len(records),
+        "completed_examples": 0,
+        "status": "running",
+    }
+    active_metadata_path.write_text(json.dumps(run_metadata, indent=2) + "\n", encoding="utf-8")
+    try:
+        with temporary_output.open("w", encoding="utf-8") as stream:
+            for index, row in enumerate(records, start=1):
+                judgment, metadata = request_judgment(
+                    args.base_url,
+                    api_key,
+                    args.model,
+                    row["document"],
+                    row["prediction"],
+                    args.timeout,
+                )
+                result = {
+                    "id": row["id"],
+                    "candidate_model": row.get("model"),
+                    "judge_model": args.model,
+                    "judgment": judgment,
+                    **metadata,
+                }
+                stream.write(json.dumps(result, ensure_ascii=False) + "\n")
+                stream.flush()
+                run_metadata["completed_examples"] = index
+                active_metadata_path.write_text(json.dumps(run_metadata, indent=2) + "\n", encoding="utf-8")
+                print(f"[{index}/{len(records)}] {row['id']}", file=sys.stderr)
+    except BaseException as exc:
+        run_metadata.update({"status": "failed", "error": str(exc)})
+        active_metadata_path.write_text(json.dumps(run_metadata, indent=2) + "\n", encoding="utf-8")
+        raise
+    temporary_output.replace(args.output)
+    run_metadata["status"] = "complete"
+    active_metadata_path.write_text(json.dumps(run_metadata, indent=2) + "\n", encoding="utf-8")
+    active_metadata_path.replace(metadata_path)
+    print(f"Wrote LLM judgments to {args.output}")
+    print(f"Judge run metadata: {metadata_path}")
+
+
 def score_predictions(args: argparse.Namespace) -> None:
     try:
         from rouge_score import rouge_scorer
@@ -165,6 +232,16 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--limit", type=int)
     run.add_argument("--overwrite", action="store_true")
     run.set_defaults(func=run_evaluation)
+
+    judge = commands.add_parser("judge", help="score predictions with an OpenRouter LLM judge")
+    judge.add_argument("--input", type=Path, required=True)
+    judge.add_argument("--output", type=Path, required=True)
+    judge.add_argument("--model", default=OPENROUTER_DEFAULT_MODEL)
+    judge.add_argument("--base-url", default=OPENROUTER_BASE_URL)
+    judge.add_argument("--timeout", type=float, default=120)
+    judge.add_argument("--limit", type=int)
+    judge.add_argument("--overwrite", action="store_true")
+    judge.set_defaults(func=judge_predictions)
 
     score = commands.add_parser("score", help="calculate ROUGE F1 from prediction JSONL")
     score.add_argument("--input", type=Path, required=True)

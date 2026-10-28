@@ -83,7 +83,25 @@ Score prediction output with ROUGE F1:
 tinyllm-eval score --input runs/qwen35-0.8b/predictions.jsonl
 ```
 
-ROUGE is reference-overlap only, not a factuality or overall quality judgment. For the first pilot, manually inspect several examples for factuality, relevance, concision, and formatting before scaling to 500–1,000 held-out examples. Do not tune the prompt against the final evaluation set.
+ROUGE is reference-overlap only, not a factuality or overall quality judgment. Add the OpenRouter credential to the existing user secrets file (do not put it in tracked project files):
+
+```text
+OPENROUTER_API_KEY=<your OpenRouter API key>
+```
+
+On this machine, use `chezmoi edit ~/.config/secrets.env` to add it; the shell loaders export that file for new terminals. Then run the LLM judge on predictions:
+
+```bash
+tinyllm-eval judge \
+  --input runs/qwen35-0.8b/predictions.jsonl \
+  --output runs/qwen35-0.8b/judgments.jsonl
+```
+
+The judge defaults to `~deepseek/deepseek-flash-latest` on OpenRouter. It sees the source document and candidate summary (not the reference), and returns 1–5 scores for factuality, coverage, relevance, concision, readability, and overall quality, plus unsupported-claim notes. Override the model with `--model` if needed. Judgment outputs include judge model and token usage; keep them alongside predictions. Treat these as an additional comparison signal alongside ROUGE, not a single combined score. Do not tune prompts against the final evaluation set.
+
+The judge sends source articles and predictions to OpenRouter. Use only data you are permitted to send to that service. It writes incrementally to a temporary file and tracks `running`/`failed`/`complete` status and completed count in a temporary metadata sidecar. It publishes the final JSONL and `.meta.json` sidecar only on success, preserving any previous complete output and metadata if a rerun fails. Use `--overwrite` to replace them after a successful run.
+
+The initial 50-example pilot is sufficient to test the pipeline and surface obvious differences; expand the sample if candidate rankings are close or unstable.
 
 ## Tests
 
