@@ -115,6 +115,7 @@ class JudgeRequestTests(unittest.TestCase):
         self.assertEqual(received["path"], "/v1/chat/completions")
         self.assertEqual(received["authorization"], "Bearer test-secret")
         self.assertEqual(received["body"]["response_format"], {"type": "json_object"})
+        self.assertEqual(received["body"]["reasoning"], {"enabled": False})
         user_content = received["body"]["messages"][1]["content"]
         data = json.loads(user_content.split("\n\n", 1)[1])
         self.assertEqual(data["source"], "The article source.")

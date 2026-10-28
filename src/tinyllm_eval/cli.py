@@ -117,7 +117,25 @@ def run_evaluation(args: argparse.Namespace) -> None:
     print(f"Run metadata: {metadata_path}")
 
 
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+
+
+def load_project_env_file(path: Path | None = None) -> None:
+    """Load the repo-local OpenRouter key without overriding the shell environment."""
+    path = path or PROJECT_ROOT / ".env"
+    if not path.is_file():
+        return
+    for line in path.read_text(encoding="utf-8").splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        if key == OPENROUTER_API_KEY_ENV and value and not os.environ.get(key):
+            os.environ[key] = value
+
+
 def judge_predictions(args: argparse.Namespace) -> None:
+    load_project_env_file()
     api_key = os.environ.get(OPENROUTER_API_KEY_ENV)
     if not api_key:
         raise RuntimeError(f"Set {OPENROUTER_API_KEY_ENV} in your environment before judging")

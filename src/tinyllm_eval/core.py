@@ -94,6 +94,7 @@ def request_judgment(
         ],
         "temperature": 0,
         "max_tokens": 512,
+        "reasoning": {"enabled": False},
         "response_format": {"type": "json_object"},
         "stream": False,
     }
@@ -130,7 +131,11 @@ def request_judgment(
     except (KeyError, IndexError, TypeError) as exc:
         raise RuntimeError(f"Unexpected judge response: {payload!r}") from exc
     if not isinstance(text, str) or not text.strip():
-        raise RuntimeError("Judge endpoint returned an empty response")
+        fields = sorted(choice.get("message", {}).keys()) if isinstance(choice.get("message"), dict) else []
+        finish_reason = choice.get("finish_reason")
+        raise RuntimeError(
+            f"Judge endpoint returned no usable content (message fields: {fields}, finish_reason: {finish_reason})"
+        )
     try:
         judgment = _parse_judge_response(text)
     except ValueError as exc:

@@ -83,13 +83,13 @@ Score prediction output with ROUGE F1:
 tinyllm-eval score --input runs/qwen35-0.8b/predictions.jsonl
 ```
 
-ROUGE is reference-overlap only, not a factuality or overall quality judgment. Add the OpenRouter credential to the existing user secrets file (do not put it in tracked project files):
+ROUGE is reference-overlap only, not a factuality or overall quality judgment. For a project-specific OpenRouter credential, add this line to the repo-root `.env` file (already git-ignored):
 
 ```text
 OPENROUTER_API_KEY=<your OpenRouter API key>
 ```
 
-On this machine, use `chezmoi edit ~/.config/secrets.env` to add it; the shell loaders export that file for new terminals. Then run the LLM judge on predictions:
+Keep `.env` restricted to your user (`chmod 600 .env`). The judge loads this project-local file without overriding an `OPENROUTER_API_KEY` already set in the process environment. Then run the LLM judge on predictions:
 
 ```bash
 tinyllm-eval judge \

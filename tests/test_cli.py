@@ -1,13 +1,29 @@
+import os
 import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from tinyllm_eval.cli import judge_predictions, prepare_dataset
+from tinyllm_eval.cli import judge_predictions, load_project_env_file, prepare_dataset
 
 
 class PrepareDatasetTests(unittest.TestCase):
+    def test_loads_project_key_without_overriding_environment(self):
+        with tempfile.TemporaryDirectory() as directory:
+            env_file = Path(directory) / ".env"
+            env_file.write_text(
+                "# project-local key\nOTHER=value\nOPENROUTER_API_KEY=project-key\n",
+                encoding="utf-8",
+            )
+            with patch.dict("os.environ", {}, clear=True):
+                load_project_env_file(env_file)
+                self.assertEqual(os.environ["OPENROUTER_API_KEY"], "project-key")
+
+            with patch.dict("os.environ", {"OPENROUTER_API_KEY": "shell-key"}, clear=True):
+                load_project_env_file(env_file)
+                self.assertEqual(os.environ["OPENROUTER_API_KEY"], "shell-key")
+
     def test_judge_requires_openrouter_key(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -20,7 +36,7 @@ class PrepareDatasetTests(unittest.TestCase):
                 model="test-judge",
                 timeout=10,
             )
-            with patch.dict("os.environ", {}, clear=True):
+            with patch("tinyllm_eval.cli.load_project_env_file"), patch.dict("os.environ", {}, clear=True):
                 with self.assertRaisesRegex(RuntimeError, "OPENROUTER_API_KEY"):
                     judge_predictions(args)
 

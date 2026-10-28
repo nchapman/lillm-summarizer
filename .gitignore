@@ -4,6 +4,7 @@ __pycache__/
 .pytest_cache/
 .venv/
 .pi/
+.env
 
 # Downloaded datasets, model files, generated predictions, and reports
 data/downloads/
