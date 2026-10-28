@@ -7,7 +7,7 @@ from tinyllm_eval.core import request_judgment, request_summary
 
 
 class InferenceRequestTests(unittest.TestCase):
-    def test_sends_deterministic_chat_request_and_reads_completion(self):
+    def test_sends_chat_request_with_sampling_settings_and_reads_completion(self):
         received = {}
 
         class Handler(BaseHTTPRequestHandler):
@@ -43,6 +43,12 @@ class InferenceRequestTests(unittest.TestCase):
                 "The input document.",
                 max_new_tokens=64,
                 timeout=5,
+                temperature=0.7,
+                top_p=0.95,
+                top_k=20,
+                min_p=0.0,
+                presence_penalty=1.5,
+                repeat_penalty=1.05,
             )
         finally:
             server.shutdown()
@@ -54,7 +60,12 @@ class InferenceRequestTests(unittest.TestCase):
         self.assertEqual(metadata["finish_reason"], "stop")
         self.assertGreaterEqual(elapsed, 0)
         self.assertEqual(received["path"], "/v1/chat/completions")
-        self.assertEqual(received["body"]["temperature"], 0)
+        self.assertEqual(received["body"]["temperature"], 0.7)
+        self.assertEqual(received["body"]["top_p"], 0.95)
+        self.assertEqual(received["body"]["top_k"], 20)
+        self.assertEqual(received["body"]["min_p"], 0.0)
+        self.assertEqual(received["body"]["presence_penalty"], 1.5)
+        self.assertEqual(received["body"]["repeat_penalty"], 1.05)
         self.assertEqual(received["body"]["seed"], 42)
         self.assertIn("The input document.", received["body"]["messages"][1]["content"])
 

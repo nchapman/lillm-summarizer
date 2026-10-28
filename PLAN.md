@@ -40,7 +40,7 @@ Before scoring models:
 - Decide whether to use an existing held-out test split or create a held-out set from permitted data. Keep a final test set sealed until prompt/model choices are frozen; use validation data for iteration.
 - Sample a manageable but representative pilot (20–50 examples), then a scored sample (roughly 500–1,000 if available) stratified by input length and relevant subdomains. Preserve IDs and exact source/reference text.
 - Set max input and output token budgets before the run. If documents exceed the input budget, define and record a truncation/chunking policy instead of silently clipping them.
-- Define metrics and human-review rubric before viewing model rankings. Keep the evaluation data and references out of training and training-data generation; run deduplication/leakage checks where feasible.
+- Define the ROUGE and source-grounded LLM-judge criteria before viewing model rankings. Human review is optional, not a gate for this pilot. Keep the evaluation data and references out of training and training-data generation; run deduplication/leakage checks where feasible.
 
 ### 0B. Identify or create the training data
 
@@ -60,11 +60,11 @@ Use **Unsloth for LoRA/SFT training** (with its TRL/PEFT-based workflow) and **l
 The harness should:
 - Load pinned model and tokenizer revisions, and preserve each model's native chat template.
 - Expose one common summarization prompt and generation contract.
-- Save input, rendered prompt, output, token counts, stop reason, timing, model/revision, quantization, and generation settings per example.
+- Save input, rendered prompt, output, token counts, stop reason, timing, model/revision, quantization, and per-model generation settings per example.
 - Write predictions incrementally, keep partial outputs inspectable, and mark run metadata as running/failed/complete so interrupted batches are distinguishable; add automatic resume only if pilot runs justify it.
 - Keep raw generations immutable so metrics can be recalculated later.
 
-For a fair quality baseline, use BF16/FP16 where the available hardware permits. If memory requires quantization, use one declared quantization level for all models (for example Q8 first, or Q4_K_M for an explicitly deployment-oriented comparison) and do not compare a quantized model against full precision without labeling the difference. Start with greedy/temperature 0 for repeatability; later test a small sampling sweep only if it reflects the intended deployment.
+For the current comparison, use pinned Q4 GGUFs: prefer Unsloth dynamic `UD-Q4_K_XL`, falling back to official `Q4_K_M` if no dynamic Unsloth quant is available. Preserve the same prompt and frozen evaluation set, but use and record each model's official recommended sampling configuration rather than forcing uniform greedy decoding. Fix the seed and label quantization and decoding settings with every result. Run one model at a time on the GB10 unified-memory host.
 
 ### 2. Baseline evaluation (no training)
 
@@ -74,7 +74,7 @@ For the default news task, CNN/DailyMail is a practical first benchmark; use its
 
 Report at least:
 - ROUGE-1/2/L (with tokenizer/normalization settings stated) for reference overlap, not as the sole quality measure.
-- A factuality/consistency measure and a blinded human preference check on a smaller sample. Judge factual support against the source, coverage of key information, concision/relevance, and readability.
+- A source-grounded LLM judge measuring factuality, coverage, relevance, concision, readability, and overall quality. The judge sees the source and candidate summary, not the reference; record unsupported-claim notes. Human preference review may be added later but is not required for this comparison.
 - Length, latency, throughput, and peak memory alongside quality.
 - Per-example and aggregate results, with confidence intervals or paired bootstrap comparisons where practical.
 
@@ -97,13 +97,13 @@ For each model compare:
 
 Use at least a few training seeds for finalists if the differences are small. Measure both absolute post-training quality and gain over that model's own baseline; the best base model and the best LoRA beneficiary may differ.
 
-### 5. Human review and decision
+### 5. Compare and decide
 
-Blind and randomize model identities for paired human review on a manageable sample (for example 100 inputs). Use a short rubric: factuality, coverage, concision, clarity, and overall preference. Inspect factuality failures and regressions, not only averages. Select winners using a pre-agreed quality/cost criterion rather than a single ROUGE score.
+Use ROUGE together with the source-grounded LLM-judge dimensions and latency/memory. Inspect per-example outputs or judge notes for conspicuous failure patterns, rather than selecting by ROUGE alone. Human review can be added if later decisions require extra confidence, but it is not a requirement for this experiment. Select candidates using a pre-agreed quality/cost criterion.
 
 ### 6. Package results and iterate
 
-Keep a reproducible results table and per-example outputs. Document known limitations, licenses, model revisions, inference/training stacks, and conversion status. Only after the first run is trusted should we add more datasets, multilingual tasks, quantization variants, or hyperparameter sweeps.
+Keep a reproducible results table and per-example outputs. Document known limitations, licenses, model revisions, sampling/quantization settings, inference/training stacks, and conversion status. Only after the first run is trusted should we add more datasets, multilingual tasks, quantization variants, or hyperparameter sweeps.
 
 ## Early technical recommendation
 

@@ -72,9 +72,15 @@ def run_evaluation(args: argparse.Namespace) -> None:
         "input_sha256": sha256_file(args.input),
         "example_count": len(records),
         "prompt_version": PROMPT_VERSION,
-        "temperature": 0,
+        "temperature": args.temperature,
+        "top_p": args.top_p,
+        "top_k": args.top_k,
+        "min_p": args.min_p,
+        "presence_penalty": args.presence_penalty,
+        "repeat_penalty": args.repeat_penalty,
+        "seed": 42,
         "max_new_tokens": args.max_new_tokens,
-        "server_generation_settings": "temperature=0, seed=42; pin llama.cpp launch options separately",
+        "server_generation_settings": "Sampling values are sent per request; pin llama.cpp launch options separately",
     }
     metadata.update({"status": "running", "completed_examples": 0})
     metadata_path.write_text(json.dumps(metadata, indent=2) + "\n", encoding="utf-8")
@@ -89,6 +95,12 @@ def run_evaluation(args: argparse.Namespace) -> None:
                     row["document"],
                     args.max_new_tokens,
                     args.timeout,
+                    temperature=args.temperature,
+                    top_p=args.top_p,
+                    top_k=args.top_k,
+                    min_p=args.min_p,
+                    presence_penalty=args.presence_penalty,
+                    repeat_penalty=args.repeat_penalty,
                 )
                 record: dict[str, Any] = {
                     "id": row["id"],
@@ -246,6 +258,12 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--server-version", default="unrecorded", help="for example llama.cpp commit SHA")
     run.add_argument("--base-url", default="http://127.0.0.1:8080/v1")
     run.add_argument("--max-new-tokens", type=int, default=192)
+    run.add_argument("--temperature", type=float, default=0.0)
+    run.add_argument("--top-p", type=float)
+    run.add_argument("--top-k", type=int)
+    run.add_argument("--min-p", type=float)
+    run.add_argument("--presence-penalty", type=float)
+    run.add_argument("--repeat-penalty", type=float)
     run.add_argument("--timeout", type=float, default=600)
     run.add_argument("--limit", type=int)
     run.add_argument("--overwrite", action="store_true")

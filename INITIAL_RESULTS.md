@@ -1,4 +1,6 @@
-# Initial pilot result
+# Historical Q8 pilot result (superseded)
+
+The Q4 comparison with model-recommended sampling is documented in [`BASELINE_RESULTS.md`](BASELINE_RESULTS.md). This Q8_0 result is retained only as a historical pipeline/setup check; do not compare it directly with the Q4 runs.
 
 This is an end-to-end setup check, not a model ranking or a reliable estimate of expected performance. The 50 examples are a seeded sample from the CNN/DailyMail 3.0.0 test split. Keep this exact sample for paired comparisons; the data file is local and git-ignored.
 
@@ -13,4 +15,4 @@ This is an end-to-end setup check, not a model ranking or a reliable estimate of
 - ROUGE F1: ROUGE-1 `0.3524`, ROUGE-2 `0.1235`, ROUGE-L `0.2034` (mean per-example F1, Porter stemming).
 - Mean per-example end-to-end generation time: `0.895 s` (range `0.537–1.598 s`); all 50 outputs non-empty and ended with `stop`.
 
-A 3-example initial smoke test showed plausible summaries but also factual errors (including an unsupported detail and a mistaken attribution). This reinforces that ROUGE alone is insufficient; factuality and human inspection are required before choosing a winner. No conclusions about relative model quality should be drawn from this single 50-example pilot.
+A 3-example initial smoke test showed plausible summaries but also factual errors (including an unsupported detail and a mistaken attribution). This reinforces that ROUGE alone is insufficient. The later Q4 pilot adds the requested source-grounded LLM judge; see `BASELINE_RESULTS.md` for the aggregate comparison. These 50 examples remain an initial pilot, so conclusions about model quality are provisional.

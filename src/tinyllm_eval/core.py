@@ -214,6 +214,13 @@ def request_summary(
     document: str,
     max_new_tokens: int,
     timeout: float,
+    *,
+    temperature: float = 0.0,
+    top_p: float | None = None,
+    top_k: int | None = None,
+    min_p: float | None = None,
+    presence_penalty: float | None = None,
+    repeat_penalty: float | None = None,
 ) -> tuple[str, dict[str, Any], float]:
     """Request one chat completion from a llama.cpp-compatible endpoint."""
     url = base_url.rstrip("/") + "/chat/completions"
@@ -223,11 +230,19 @@ def request_summary(
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": USER_PROMPT_TEMPLATE.format(document=document)},
         ],
-        "temperature": 0,
+        "temperature": temperature,
         "seed": 42,
         "max_tokens": max_new_tokens,
         "stream": False,
     }
+    optional_sampling = {
+        "top_p": top_p,
+        "top_k": top_k,
+        "min_p": min_p,
+        "presence_penalty": presence_penalty,
+        "repeat_penalty": repeat_penalty,
+    }
+    body.update({key: value for key, value in optional_sampling.items() if value is not None})
     request = Request(
         url,
         data=json.dumps(body).encode("utf-8"),
