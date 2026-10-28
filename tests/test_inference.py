@@ -1,6 +1,9 @@
+import io
 import json
 import threading
 import unittest
+from unittest.mock import MagicMock, patch
+from urllib.error import HTTPError, URLError
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from tinyllm_eval.core import request_judgment, request_summary
@@ -190,6 +193,119 @@ class JudgeRequestTests(unittest.TestCase):
         data = json.loads(user_content.split("\n\n", 1)[1])
         self.assertEqual(data["source"], "The article source.")
         self.assertEqual(data["candidate_summary"], "A supported summary.")
+
+    def test_retries_timeout_and_server_error_with_exponential_backoff(self):
+        judgment = {
+            "factuality": 5,
+            "coverage": 4,
+            "relevance": 5,
+            "concision": 4,
+            "readability": 5,
+            "overall_quality": 4,
+            "unsupported_claims": [],
+            "rationale": "The summary is supported and clear.",
+        }
+        response = MagicMock()
+        response.__enter__.return_value.read.return_value = json.dumps({
+            "choices": [{"finish_reason": "stop", "message": {"content": json.dumps(judgment)}}],
+            "usage": {"completion_tokens": 40},
+        }).encode()
+        unavailable = HTTPError(
+            "https://openrouter.ai/api/v1/chat/completions",
+            503,
+            "Service Unavailable",
+            {"Retry-After": "0.4"},
+            io.BytesIO(b"temporary outage"),
+        )
+        long_retry_after = HTTPError(
+            "https://openrouter.ai/api/v1/chat/completions",
+            503,
+            "Service Unavailable",
+            {"Retry-After": "3600"},
+            io.BytesIO(b"temporary outage"),
+        )
+
+        with patch("tinyllm_eval.core.build_opener") as build_opener, patch(
+            "tinyllm_eval.core.time.sleep"
+        ) as sleep, patch("tinyllm_eval.core.random.uniform", side_effect=lambda low, _high: low):
+            opener = build_opener.return_value
+            opener.open.side_effect = [
+                URLError(TimeoutError("timed out")),
+                unavailable,
+                long_retry_after,
+                response,
+            ]
+            result, metadata = request_judgment(
+                "https://openrouter.ai/api/v1",
+                "test-secret",
+                "test-judge",
+                "The article source.",
+                "A supported summary.",
+                timeout=5,
+                max_retries=3,
+                retry_backoff_seconds=0.2,
+                example_id="example-1",
+            )
+
+        self.assertEqual(result, judgment)
+        self.assertEqual(metadata["attempts"], 4)
+        self.assertEqual(opener.open.call_count, 4)
+        self.assertEqual([call.args[0] for call in sleep.call_args_list], [0.1, 0.4, 30.0])
+
+    def test_stops_before_retry_when_batch_cancellation_is_signaled(self):
+        cancellation_event = threading.Event()
+
+        def signal_cancellation(low, _high):
+            cancellation_event.set()
+            return low
+
+        with patch("tinyllm_eval.core.build_opener") as build_opener, patch(
+            "tinyllm_eval.core.random.uniform", side_effect=signal_cancellation
+        ):
+            opener = build_opener.return_value
+            opener.open.side_effect = URLError(TimeoutError("timed out"))
+            with self.assertRaisesRegex(RuntimeError, "cancelled because the batch is stopping"):
+                request_judgment(
+                    "https://openrouter.ai/api/v1",
+                    "test-secret",
+                    "test-judge",
+                    "The article source.",
+                    "A supported summary.",
+                    timeout=5,
+                    max_retries=3,
+                    retry_backoff_seconds=1,
+                    cancellation_event=cancellation_event,
+                )
+
+        self.assertEqual(opener.open.call_count, 1)
+
+    def test_does_not_retry_non_transient_http_error(self):
+        error = HTTPError(
+            "https://openrouter.ai/api/v1/chat/completions",
+            400,
+            "Bad Request",
+            {},
+            io.BytesIO(b"invalid request"),
+        )
+        with patch("tinyllm_eval.core.build_opener") as build_opener, patch(
+            "tinyllm_eval.core.time.sleep"
+        ) as sleep:
+            opener = build_opener.return_value
+            opener.open.side_effect = error
+            with self.assertRaisesRegex(RuntimeError, "HTTP 400"):
+                request_judgment(
+                    "https://openrouter.ai/api/v1",
+                    "test-secret",
+                    "test-judge",
+                    "The article source.",
+                    "A supported summary.",
+                    timeout=5,
+                    max_retries=3,
+                    retry_backoff_seconds=0,
+                )
+
+        self.assertEqual(opener.open.call_count, 1)
+        sleep.assert_not_called()
 
     def test_rejects_non_openrouter_remote_base_url(self):
         with self.assertRaisesRegex(ValueError, "OpenRouter HTTPS"):

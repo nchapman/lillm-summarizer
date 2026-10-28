@@ -6,6 +6,8 @@ import hashlib
 import http.client
 import json
 import random
+import sys
+import threading
 import time
 from pathlib import Path
 from typing import Any
@@ -84,8 +86,16 @@ def request_judgment(
     timeout: float,
     *,
     allow_insecure_loopback: bool = False,
+    max_retries: int = 3,
+    retry_backoff_seconds: float = 1.0,
+    example_id: str | None = None,
+    cancellation_event: threading.Event | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
-    """Evaluate one summary using an OpenAI-compatible chat-completions API."""
+    """Evaluate one summary, retrying transient endpoint failures with backoff."""
+    if max_retries < 0:
+        raise ValueError("max_retries must be zero or greater")
+    if retry_backoff_seconds < 0:
+        raise ValueError("retry_backoff_seconds must be zero or greater")
     _validate_judge_base_url(base_url, allow_insecure_loopback=allow_insecure_loopback)
     url = base_url.rstrip("/") + "/chat/completions"
     body = {
@@ -118,15 +128,53 @@ def request_judgment(
     )
 
     opener = build_opener(NoRedirectHandler)
-    try:
-        with opener.open(request, timeout=timeout) as response:
-            payload = json.loads(response.read().decode("utf-8"))
-    except HTTPError as exc:
-        detail = exc.read().decode("utf-8", errors="replace")[:1000]
-        raise RuntimeError(f"Judge endpoint returned HTTP {exc.code}: {detail}") from exc
-    except (URLError, TimeoutError, OSError, http.client.HTTPException) as exc:
-        reason = getattr(exc, "reason", str(exc))
-        raise RuntimeError(f"Judge request to {url} failed: {reason}") from exc
+    max_attempts = max_retries + 1
+    for attempt in range(1, max_attempts + 1):
+        if cancellation_event and cancellation_event.is_set():
+            raise RuntimeError("Judge request cancelled because the batch is stopping")
+        retry_after: float | None = None
+        try:
+            with opener.open(request, timeout=timeout) as response:
+                payload = json.loads(response.read().decode("utf-8"))
+            break
+        except HTTPError as exc:
+            detail = exc.read(1000).decode("utf-8", errors="replace")
+            retryable = exc.code in {408, 425, 429} or 500 <= exc.code <= 599
+            if exc.headers:
+                try:
+                    retry_after = max(0.0, float(exc.headers.get("Retry-After", "")))
+                except ValueError:
+                    pass
+            error = RuntimeError(f"Judge endpoint returned HTTP {exc.code}: {detail}")
+            cause: BaseException = exc
+        except (URLError, TimeoutError, OSError, http.client.HTTPException) as exc:
+            retryable = True
+            reason = getattr(exc, "reason", str(exc))
+            error = RuntimeError(f"Judge request to {url} failed: {reason}")
+            cause = exc
+
+        if not retryable:
+            raise error from cause
+        if cancellation_event and cancellation_event.is_set():
+            raise RuntimeError("Judge request cancelled because the batch is stopping") from cause
+        if attempt == max_attempts:
+            raise RuntimeError(f"{error} after {attempt} attempts") from cause
+
+        delay_limit = min(retry_backoff_seconds * 2 ** (attempt - 1), 30.0)
+        delay = random.uniform(delay_limit * 0.5, delay_limit * 1.5)
+        if retry_after is not None:
+            delay = min(max(delay, retry_after), 30.0)
+        example = f" for {example_id}" if example_id else ""
+        print(
+            f"Transient judge request failure{example} on attempt {attempt}/{max_attempts}: "
+            f"{error}; retrying in {delay:g}s",
+            file=sys.stderr,
+        )
+        if cancellation_event:
+            if cancellation_event.wait(delay):
+                raise RuntimeError("Judge request cancelled because the batch is stopping")
+        else:
+            time.sleep(delay)
 
     try:
         choice = payload["choices"][0]
@@ -143,7 +191,11 @@ def request_judgment(
         judgment = _parse_judge_response(text)
     except ValueError as exc:
         raise RuntimeError(str(exc)) from exc
-    metadata = {"usage": payload.get("usage") or {}, "finish_reason": choice.get("finish_reason")}
+    metadata = {
+        "usage": payload.get("usage") or {},
+        "finish_reason": choice.get("finish_reason"),
+        "attempts": attempt,
+    }
     return judgment, metadata
 
 
@@ -182,19 +234,23 @@ def sample_stream(
     rng = random.Random(seed)
     sample: list[dict[str, Any]] = []
     valid_seen = 0
+    eligible_seen = 0
     for record in records:
         candidate = {
             "id": str(record.get("id") or record.get("article_id") or valid_seen),
             "document": record.get("article") or record.get("document"),
             "reference": record.get("highlights") or record.get("summary"),
         }
-        if not candidate["document"] or not candidate["reference"] or candidate["id"] in excluded:
+        if not candidate["document"] or not candidate["reference"]:
             continue
         valid_seen += 1
+        if candidate["id"] in excluded:
+            continue
+        eligible_seen += 1
         if len(sample) < count:
             sample.append(candidate)
         else:
-            slot = rng.randrange(valid_seen)
+            slot = rng.randrange(eligible_seen)
             if slot < count:
                 sample[slot] = candidate
     if len(sample) < count:

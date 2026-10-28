@@ -2,7 +2,7 @@
 
 This repo starts with **English news summarization**. Evaluation samples are drawn from the CNN/DailyMail 3.0.0 **test split** and are never training data. The original 50-example pilot is retained as a stable pipeline/baseline set; a separate 250-example confirmation set is used to check whether its comparisons generalize. Preserve each generated file and use the same examples for every model. The repo ignores downloaded data, model files, and run outputs.
 
-See [PLAN.md](PLAN.md) for the broader benchmark and LoRA phases, and [BASELINE_RESULTS.md](BASELINE_RESULTS.md) for the completed Q4 pilot comparison.
+See [PLAN.md](PLAN.md) for the broader benchmark and LoRA phases, [BASELINE_RESULTS.md](BASELINE_RESULTS.md) for the 50-example Q4 pilot, and [CONFIRMATION_RESULTS.md](CONFIRMATION_RESULTS.md) for the disjoint 250-example confirmation comparison.
 
 ## Environment
 
@@ -35,7 +35,7 @@ tinyllm-eval prepare-cnn-dm \
   --output data/eval/cnn_dailymail_test_confirmation.jsonl
 ```
 
-This is a second seeded reservoir sample from the remaining test examples, not a replacement for the original pilot. The confirmation set has 250 unique IDs and no article or ID overlap with the pilot. Its SHA-256 is `047f62c289d3eb08ce3dd5f3096736cf40f0414b1f602a052ee8e79a1377e75e`; 101/250 articles have ≤500 words, 115 have 501–1000, and 34 have >1000. Keep the JSONL itself for exact reuse; the exclusion-source hash is recorded in every row.
+This is a second seeded reservoir sample from the remaining test examples, not a replacement for the original pilot. The confirmation set has 250 unique IDs and no article or ID overlap with the pilot. Its SHA-256 is `047f62c289d3eb08ce3dd5f3096736cf40f0414b1f602a052ee8e79a1377e75e`; 101/250 articles have ≤500 words, 115 have 501–1000, and 34 have >1000. A scan of the remaining valid test split found respective proportions of 35.5%, 47.0%, and 17.4%, so the random sample includes all three length bands without imposed quotas. Keep the JSONL itself for exact reuse; the exclusion-source hash is recorded in every row.
 
 ## Run one model through llama.cpp
 
@@ -61,7 +61,7 @@ hf download unsloth/Qwen3.5-0.8B-GGUF Qwen3.5-0.8B-UD-Q4_K_XL.gguf \
   --alias qwen35-0.8b --port 8080 -ngl all -c 8192 --parallel 1 --reasoning off
 ```
 
-Download each model's listed repo, file, and pinned revision. Start only one model at a time, with `--parallel 1`, and stop it before loading the next to keep unified-memory use bounded. Qwen3.5 needs `--reasoning off`; MiniCPM5 no-think mode additionally needs `--chat-template-kwargs '{"enable_thinking":false}'`.
+Download each model's listed repo, file, and pinned revision. Start only one model at a time, with `--parallel 1`, and stop it before loading the next to keep unified-memory use bounded. Use `--reasoning off` for Qwen3.5 and MiniCPM5 no-thinking runs; this llama.cpp build deprecates MiniCPM5's `enable_thinking` chat-template override.
 
 Use the model-card sampler settings rather than forcing greedy decoding. Qwen3.5 non-thinking text: temperature 1.0, top-p 1.0, top-k 20, min-p 0.0, presence penalty 2.0. MiniCPM5-1B no-think: temperature 0.7, top-p 0.95. LFM2.5-1.2B-Instruct: temperature 0.1, top-k 50, repeat penalty 1.05 (leave unspecified samplers at the pinned llama.cpp defaults). Granite 4.0-1B: temperature 0, top-p 1, top-k 0. The CLI records sampler settings and uses seed 42; sampling models are seeded, not greedy.
 
@@ -142,7 +142,7 @@ tinyllm-eval judge \
 
 The judge defaults to `~deepseek/deepseek-flash-latest` on OpenRouter. It sees the source document and candidate summary (not the reference), and returns 1–5 scores for factuality, coverage, relevance, concision, readability, and overall quality, plus unsupported-claim notes. Override the model with `--model` if needed. Judgment outputs include judge model and token usage; keep them alongside predictions. Treat these as an additional comparison signal alongside ROUGE, not a single combined score. Do not tune prompts against the final evaluation set.
 
-The judge sends source articles and predictions to OpenRouter. Use only data you are permitted to send to that service. It writes incrementally to a temporary file and tracks `running`/`failed`/`complete` status and completed count in a temporary metadata sidecar. It publishes the final JSONL and `.meta.json` sidecar only on success, preserving any previous complete output and metadata if a rerun fails. Use `--overwrite` to replace them after a successful run.
+The judge sends source articles and predictions to OpenRouter. Use only data you are permitted to send to that service. It runs up to 16 requests concurrently by default (`--concurrency 32` raises this to 32), with a 60-second per-attempt timeout (`--timeout`) and three retries for transient network failures and HTTP 408/425/429/5xx responses (`--max-retries`). Retries use jittered exponential backoff and honor numeric `Retry-After` headers up to a 30-second backoff cap; queued work is cancelled and in-flight requests stop retrying after a batch failure. An in-flight HTTP request cannot be interrupted mid-call and can remain active until its per-attempt timeout. Successful outputs are restored to input order; each row records its attempt count. It writes incrementally to a temporary file and tracks the request settings plus `running`/`failed`/`complete` status and completed count in a temporary metadata sidecar. It publishes the final JSONL and `.meta.json` sidecar only on success, preserving any previous complete output and metadata if a rerun fails. Usage records reflect successful responses; a provider may still have processed a request whose response timed out, so retries can incur unreported provider usage. Use `--overwrite` to replace them after a successful run.
 
 The initial 50-example pilot is sufficient to test the pipeline and surface obvious differences; expand the sample if candidate rankings are close or unstable.
 

@@ -24,15 +24,36 @@ class SampleStreamTests(unittest.TestCase):
 
     def test_excludes_ids_before_sampling_without_reducing_requested_count(self):
         excluded = {"0", "1", "2", "3", "4"}
+        eligible_records = [row for row in self.records if row["id"] not in excluded]
 
         sample = sample_stream(iter(self.records), count=5, seed=123, exclude_ids=excluded)
+        expected = sample_stream(iter(eligible_records), count=5, seed=123)
 
+        self.assertEqual(sample, expected)
         self.assertEqual(len(sample), 5)
         self.assertTrue({row["id"] for row in sample}.isdisjoint(excluded))
 
     def test_rejects_count_larger_than_data_remaining_after_exclusions(self):
         with self.assertRaisesRegex(ValueError, "only 18 valid"):
             sample_stream(iter(self.records), count=19, seed=1, exclude_ids={"0", "1"})
+
+    def test_excluding_generated_id_does_not_shift_later_ids_or_bias_sampling(self):
+        records = [
+            {"document": f"article {index}", "summary": f"summary {index}"}
+            for index in range(10)
+        ]
+        eligible_records = [records[index] for index in range(len(records)) if index != 1]
+
+        sample = sample_stream(iter(records), count=4, seed=123, exclude_ids={"1"})
+        expected = sample_stream(iter(eligible_records), count=4, seed=123)
+
+        sample_ids = [row["id"] for row in sample]
+        source_indices = [row["document"].removeprefix("article ") for row in sample]
+        sample_documents = [row["document"] for row in sample]
+        expected_documents = [row["document"] for row in expected]
+
+        self.assertEqual(sample_ids, source_indices)
+        self.assertEqual(sample_documents, expected_documents)
 
     def test_generates_stable_ids_for_alias_only_records(self):
         records = [

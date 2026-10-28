@@ -6,6 +6,8 @@ import argparse
 import json
 import os
 import sys
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -194,11 +196,48 @@ def load_project_env_file(path: Path | None = None) -> None:
             os.environ[key] = value
 
 
+def _judge_one(
+    index: int,
+    row: dict[str, Any],
+    args: argparse.Namespace,
+    api_key: str,
+    cancellation_event: threading.Event,
+) -> tuple[int, dict[str, Any]]:
+    judgment, metadata = request_judgment(
+        args.base_url,
+        api_key,
+        args.model,
+        row["document"],
+        row["prediction"],
+        args.timeout,
+        max_retries=args.max_retries,
+        retry_backoff_seconds=args.retry_backoff_seconds,
+        example_id=row["id"],
+        cancellation_event=cancellation_event,
+    )
+    result = {
+        "id": row["id"],
+        "candidate_model": row.get("model"),
+        "judge_model": args.model,
+        "judgment": judgment,
+        **metadata,
+    }
+    return index, result
+
+
 def judge_predictions(args: argparse.Namespace) -> None:
     load_project_env_file()
     api_key = os.environ.get(OPENROUTER_API_KEY_ENV)
     if not api_key:
         raise RuntimeError(f"Set {OPENROUTER_API_KEY_ENV} in your environment before judging")
+    if args.timeout <= 0:
+        raise ValueError("--timeout must be greater than zero")
+    if args.max_retries < 0:
+        raise ValueError("--max-retries must be zero or greater")
+    if args.retry_backoff_seconds < 0:
+        raise ValueError("--retry-backoff-seconds must be zero or greater")
+    if args.concurrency <= 0:
+        raise ValueError("--concurrency must be greater than zero")
     records = load_jsonl(args.input)
     if args.limit is not None:
         if args.limit <= 0:
@@ -217,34 +256,47 @@ def judge_predictions(args: argparse.Namespace) -> None:
         "input": str(args.input),
         "input_sha256": sha256_file(args.input),
         "judge_model": args.model,
+        "request_timeout_seconds": args.timeout,
+        "max_retries": args.max_retries,
+        "retry_backoff_seconds": args.retry_backoff_seconds,
+        "concurrency": args.concurrency,
         "example_count": len(records),
         "completed_examples": 0,
         "status": "running",
     }
     active_metadata_path.write_text(json.dumps(run_metadata, indent=2) + "\n", encoding="utf-8")
     try:
+        indexed_results: dict[int, dict[str, Any]] = {}
+        cancellation_event = threading.Event()
         with temporary_output.open("w", encoding="utf-8") as stream:
-            for index, row in enumerate(records, start=1):
-                judgment, metadata = request_judgment(
-                    args.base_url,
-                    api_key,
-                    args.model,
-                    row["document"],
-                    row["prediction"],
-                    args.timeout,
-                )
-                result = {
-                    "id": row["id"],
-                    "candidate_model": row.get("model"),
-                    "judge_model": args.model,
-                    "judgment": judgment,
-                    **metadata,
+            with ThreadPoolExecutor(max_workers=args.concurrency) as executor:
+                futures = {
+                    executor.submit(_judge_one, index, row, args, api_key, cancellation_event): index
+                    for index, row in enumerate(records)
                 }
-                stream.write(json.dumps(result, ensure_ascii=False) + "\n")
-                stream.flush()
-                run_metadata["completed_examples"] = index
-                active_metadata_path.write_text(json.dumps(run_metadata, indent=2) + "\n", encoding="utf-8")
-                print(f"[{index}/{len(records)}] {row['id']}", file=sys.stderr)
+                try:
+                    for future in as_completed(futures):
+                        index, result = future.result()
+                        indexed_results[index] = result
+                        stream.write(json.dumps(result, ensure_ascii=False) + "\n")
+                        stream.flush()
+                        run_metadata["completed_examples"] = len(indexed_results)
+                        active_metadata_path.write_text(json.dumps(run_metadata, indent=2) + "\n", encoding="utf-8")
+                        print(
+                            f"[{len(indexed_results)}/{len(records)}] {result['id']}",
+                            file=sys.stderr,
+                        )
+                except BaseException:
+                    cancellation_event.set()
+                    for future in futures:
+                        future.cancel()
+                    raise
+
+        ordered_temporary_output = temporary_output.with_suffix(temporary_output.suffix + ".ordered")
+        with ordered_temporary_output.open("w", encoding="utf-8") as stream:
+            for index in range(len(records)):
+                stream.write(json.dumps(indexed_results[index], ensure_ascii=False) + "\n")
+        ordered_temporary_output.replace(temporary_output)
     except BaseException as exc:
         run_metadata.update({"status": "failed", "error": str(exc)})
         active_metadata_path.write_text(json.dumps(run_metadata, indent=2) + "\n", encoding="utf-8")
@@ -325,7 +377,30 @@ def build_parser() -> argparse.ArgumentParser:
     judge.add_argument("--output", type=Path, required=True)
     judge.add_argument("--model", default=OPENROUTER_DEFAULT_MODEL)
     judge.add_argument("--base-url", default=OPENROUTER_BASE_URL)
-    judge.add_argument("--timeout", type=float, default=120)
+    judge.add_argument(
+        "--timeout",
+        type=float,
+        default=60,
+        help="per-request timeout in seconds (default: 60)",
+    )
+    judge.add_argument(
+        "--max-retries",
+        type=int,
+        default=3,
+        help="retries for transient request failures, in addition to the first attempt (default: 3)",
+    )
+    judge.add_argument(
+        "--retry-backoff-seconds",
+        type=float,
+        default=1.0,
+        help="initial exponential-backoff delay in seconds (default: 1)",
+    )
+    judge.add_argument(
+        "--concurrency",
+        type=int,
+        default=16,
+        help="maximum number of simultaneous judge requests (default: 16)",
+    )
     judge.add_argument("--limit", type=int)
     judge.add_argument("--overwrite", action="store_true")
     judge.set_defaults(func=judge_predictions)

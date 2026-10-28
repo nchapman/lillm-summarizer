@@ -1,5 +1,8 @@
+import json
 import os
 import tempfile
+import threading
+import time
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -31,6 +34,81 @@ class InferenceEndpointTests(unittest.TestCase):
         args = SimpleNamespace(base_url="https://example.invalid/api/v1", api_key_env=None)
         with self.assertRaisesRegex(ValueError, "local HTTP or OpenRouter HTTPS"):
             _resolve_inference_auth(args)
+
+
+class JudgeCliTests(unittest.TestCase):
+    def test_judges_with_bounded_concurrency_and_preserves_input_order(self):
+        judgment = {
+            "factuality": 5,
+            "coverage": 4,
+            "relevance": 5,
+            "concision": 4,
+            "readability": 5,
+            "overall_quality": 4,
+            "unsupported_claims": [],
+            "rationale": "Supported and clear.",
+        }
+        barrier = threading.Barrier(3)
+        lock = threading.Lock()
+        active = 0
+        peak_active = 0
+
+        def fake_request(*_args, **_kwargs):
+            nonlocal active, peak_active
+            with lock:
+                active += 1
+                peak_active = max(peak_active, active)
+            try:
+                barrier.wait(timeout=2)
+                time.sleep(0.01)
+                return judgment, {"usage": {}, "finish_reason": "stop", "attempts": 1}
+            finally:
+                with lock:
+                    active -= 1
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            input_path = root / "predictions.jsonl"
+            output_path = root / "judgments.jsonl"
+            records = [
+                {
+                    "id": f"id-{index}",
+                    "document": f"source {index}",
+                    "reference": f"reference {index}",
+                    "prediction": f"prediction {index}",
+                    "model": "candidate",
+                }
+                for index in range(6)
+            ]
+            input_path.write_text(
+                "".join(json.dumps(row) + "\n" for row in records),
+                encoding="utf-8",
+            )
+            args = SimpleNamespace(
+                input=input_path,
+                output=output_path,
+                limit=None,
+                overwrite=False,
+                base_url="https://openrouter.ai/api/v1",
+                model="test-judge",
+                timeout=5,
+                max_retries=0,
+                retry_backoff_seconds=0,
+                concurrency=3,
+            )
+            with patch("tinyllm_eval.cli.load_project_env_file"), patch(
+                "tinyllm_eval.cli.request_judgment", side_effect=fake_request
+            ), patch.dict(os.environ, {"OPENROUTER_API_KEY": "test-key"}, clear=True):
+                judge_predictions(args)
+
+            outputs = [json.loads(line) for line in output_path.read_text().splitlines()]
+            metadata = json.loads(output_path.with_suffix(".jsonl.meta.json").read_text())
+
+        self.assertEqual([row["id"] for row in outputs], [row["id"] for row in records])
+        self.assertEqual(peak_active, 3)
+        self.assertEqual(metadata["status"], "complete")
+        self.assertEqual(metadata["completed_examples"], 6)
+        self.assertEqual(metadata["concurrency"], 3)
 
 
 class PrepareDatasetTests(unittest.TestCase):
