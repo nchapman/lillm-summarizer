@@ -1,0 +1,186 @@
+"""Command-line interface for the small-model summarization evaluation harness."""
+
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
+
+from .core import (
+    PROMPT_VERSION,
+    load_jsonl,
+    request_summary,
+    sample_stream,
+    sha256_file,
+    write_jsonl,
+)
+
+
+def prepare_dataset(args: argparse.Namespace) -> None:
+    if args.output.exists() and not args.overwrite:
+        raise FileExistsError(f"Output already exists: {args.output}; pass --overwrite to replace it")
+    try:
+        from datasets import load_dataset
+    except ImportError as exc:
+        raise RuntimeError("Dataset preparation requires `pip install -e '.[data]'`") from exc
+
+    stream = load_dataset(
+        "abisee/cnn_dailymail",
+        "3.0.0",
+        split="test",
+        streaming=True,
+    )
+    rows = sample_stream(stream, args.count, args.seed)
+    for row in rows:
+        row["dataset"] = "abisee/cnn_dailymail"
+        row["dataset_config"] = "3.0.0"
+        row["split"] = "test"
+        row["sampling_seed"] = args.seed
+    write_jsonl(args.output, rows)
+    print(f"Wrote {len(rows)} test examples to {args.output}")
+    print("Note: streaming reservoir sampling scans the test split; preserve the resulting file to reuse this exact sample.")
+
+
+def run_evaluation(args: argparse.Namespace) -> None:
+    records = load_jsonl(args.input)
+    if args.limit is not None:
+        if args.limit <= 0:
+            raise ValueError("--limit must be greater than zero")
+        records = records[: args.limit]
+
+    args.output.parent.mkdir(parents=True, exist_ok=True)
+    metadata_path = args.output.with_suffix(args.output.suffix + ".meta.json")
+    if args.output.exists() and not args.overwrite:
+        raise FileExistsError(f"Output already exists: {args.output}; pass --overwrite to replace it")
+
+    metadata = {
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "model": args.model,
+        "model_revision": args.model_revision,
+        "quantization": args.quantization,
+        "inference_server_version": args.server_version,
+        "base_url": args.base_url,
+        "input": str(args.input),
+        "input_sha256": sha256_file(args.input),
+        "example_count": len(records),
+        "prompt_version": PROMPT_VERSION,
+        "temperature": 0,
+        "max_new_tokens": args.max_new_tokens,
+        "server_generation_settings": "temperature=0, seed=42; pin llama.cpp launch options separately",
+    }
+    metadata.update({"status": "running", "completed_examples": 0})
+    metadata_path.write_text(json.dumps(metadata, indent=2) + "\n", encoding="utf-8")
+
+    completed_examples = 0
+    try:
+        with args.output.open("w", encoding="utf-8") as stream:
+            for index, row in enumerate(records, start=1):
+                summary, response_metadata, elapsed = request_summary(
+                    args.base_url,
+                    args.model,
+                    row["document"],
+                    args.max_new_tokens,
+                    args.timeout,
+                )
+                record: dict[str, Any] = {
+                    "id": row["id"],
+                    "document": row["document"],
+                    "reference": row["reference"],
+                    "prediction": summary,
+                    "model": args.model,
+                    "prompt_version": PROMPT_VERSION,
+                    "latency_seconds": round(elapsed, 4),
+                    **response_metadata,
+                }
+                stream.write(json.dumps(record, ensure_ascii=False) + "\n")
+                stream.flush()
+                completed_examples = index
+                metadata["completed_examples"] = completed_examples
+                metadata_path.write_text(json.dumps(metadata, indent=2) + "\n", encoding="utf-8")
+                print(f"[{index}/{len(records)}] {row['id']} ({elapsed:.2f}s)", file=sys.stderr)
+    except Exception as exc:
+        metadata.update({"status": "failed", "completed_examples": completed_examples, "error": str(exc)})
+        metadata_path.write_text(json.dumps(metadata, indent=2) + "\n", encoding="utf-8")
+        raise
+
+    metadata.update({"status": "complete", "completed_examples": completed_examples})
+    metadata_path.write_text(json.dumps(metadata, indent=2) + "\n", encoding="utf-8")
+    print(f"Wrote predictions to {args.output}")
+    print(f"Run metadata: {metadata_path}")
+
+
+def score_predictions(args: argparse.Namespace) -> None:
+    try:
+        from rouge_score import rouge_scorer
+    except ImportError as exc:
+        raise RuntimeError("Scoring requires `pip install -e '.[metrics]'`") from exc
+
+    records = load_jsonl(args.input)
+    if any(not isinstance(row.get("prediction"), str) or not row["prediction"].strip() for row in records):
+        raise ValueError("Every scored record must include a non-empty 'prediction'")
+    scorer = rouge_scorer.RougeScorer(["rouge1", "rouge2", "rougeL"], use_stemmer=True)
+    aggregate = {key: 0.0 for key in ("rouge1", "rouge2", "rougeL")}
+    for row in records:
+        scores = scorer.score(row["reference"], row["prediction"])
+        for key in aggregate:
+            aggregate[key] += scores[key].fmeasure
+    result = {
+        "input": str(args.input),
+        "example_count": len(records),
+        "metric": "ROUGE F1 (rouge-score, Porter stemming)",
+        "scores": {key: value / len(records) for key, value in aggregate.items()},
+        "warning": "Reference overlap is not a factuality or overall quality measure.",
+    }
+    output = args.output or args.input.with_suffix(".scores.json")
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
+    print(json.dumps(result, indent=2))
+    print(f"Wrote scores to {output}", file=sys.stderr)
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(prog="tinyllm-eval")
+    commands = parser.add_subparsers(dest="command", required=True)
+
+    prepare = commands.add_parser("prepare-cnn-dm", help="sample the CNN/DailyMail 3.0.0 test split")
+    prepare.add_argument("--count", type=int, default=50)
+    prepare.add_argument("--seed", type=int, default=20261028)
+    prepare.add_argument("--output", type=Path, default=Path("data/eval/cnn_dailymail_test_pilot.jsonl"))
+    prepare.add_argument("--overwrite", action="store_true")
+    prepare.set_defaults(func=prepare_dataset)
+
+    run = commands.add_parser("run", help="generate summaries through a local OpenAI-compatible endpoint")
+    run.add_argument("--input", type=Path, required=True)
+    run.add_argument("--output", type=Path, required=True)
+    run.add_argument("--model", required=True, help="model identifier expected by the server")
+    run.add_argument("--model-revision", default="unrecorded", help="GGUF Hub commit SHA or local file identity")
+    run.add_argument("--quantization", default="unrecorded", help="for example Q8_0")
+    run.add_argument("--server-version", default="unrecorded", help="for example llama.cpp commit SHA")
+    run.add_argument("--base-url", default="http://127.0.0.1:8080/v1")
+    run.add_argument("--max-new-tokens", type=int, default=192)
+    run.add_argument("--timeout", type=float, default=600)
+    run.add_argument("--limit", type=int)
+    run.add_argument("--overwrite", action="store_true")
+    run.set_defaults(func=run_evaluation)
+
+    score = commands.add_parser("score", help="calculate ROUGE F1 from prediction JSONL")
+    score.add_argument("--input", type=Path, required=True)
+    score.add_argument("--output", type=Path)
+    score.set_defaults(func=score_predictions)
+    return parser
+
+
+def main() -> None:
+    parser = build_parser()
+    args = parser.parse_args()
+    try:
+        args.func(args)
+    except (FileNotFoundError, FileExistsError, ValueError, RuntimeError) as exc:
+        parser.error(str(exc))
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,12 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.venv/
+.pi/
+
+# Downloaded datasets, model files, generated predictions, and reports
+data/downloads/
+data/eval/*.jsonl
+runs/
+models/
