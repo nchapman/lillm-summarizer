@@ -33,18 +33,26 @@ def prepare_dataset(args: argparse.Namespace) -> None:
     except ImportError as exc:
         raise RuntimeError("Dataset preparation requires `pip install -e '.[data]'`") from exc
 
+    excluded_ids: set[str] = set()
+    excluded_input_sha256 = None
+    if args.exclude_input:
+        excluded_ids = {row["id"] for row in load_jsonl(args.exclude_input)}
+        excluded_input_sha256 = sha256_file(args.exclude_input)
+
     stream = load_dataset(
         "abisee/cnn_dailymail",
         "3.0.0",
         split="test",
         streaming=True,
     )
-    rows = sample_stream(stream, args.count, args.seed)
+    rows = sample_stream(stream, args.count, args.seed, exclude_ids=excluded_ids)
     for row in rows:
         row["dataset"] = "abisee/cnn_dailymail"
         row["dataset_config"] = "3.0.0"
         row["split"] = "test"
         row["sampling_seed"] = args.seed
+        if excluded_input_sha256:
+            row["excluded_input_sha256"] = excluded_input_sha256
     write_jsonl(args.output, rows)
     print(f"Wrote {len(rows)} test examples to {args.output}")
     print("Note: streaming reservoir sampling scans the test split; preserve the resulting file to reuse this exact sample.")
@@ -286,6 +294,7 @@ def build_parser() -> argparse.ArgumentParser:
     prepare.add_argument("--count", type=int, default=50)
     prepare.add_argument("--seed", type=int, default=20261028)
     prepare.add_argument("--output", type=Path, default=Path("data/eval/cnn_dailymail_test_pilot.jsonl"))
+    prepare.add_argument("--exclude-input", type=Path, help="JSONL sample whose IDs must not be selected")
     prepare.add_argument("--overwrite", action="store_true")
     prepare.set_defaults(func=prepare_dataset)
 

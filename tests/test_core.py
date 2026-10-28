@@ -22,6 +22,18 @@ class SampleStreamTests(unittest.TestCase):
 
         self.assertNotEqual([row["id"] for row in sample], ["0", "1", "2", "3", "4"])
 
+    def test_excludes_ids_before_sampling_without_reducing_requested_count(self):
+        excluded = {"0", "1", "2", "3", "4"}
+
+        sample = sample_stream(iter(self.records), count=5, seed=123, exclude_ids=excluded)
+
+        self.assertEqual(len(sample), 5)
+        self.assertTrue({row["id"] for row in sample}.isdisjoint(excluded))
+
+    def test_rejects_count_larger_than_data_remaining_after_exclusions(self):
+        with self.assertRaisesRegex(ValueError, "only 18 valid"):
+            sample_stream(iter(self.records), count=19, seed=1, exclude_ids={"0", "1"})
+
     def test_generates_stable_ids_for_alias_only_records(self):
         records = [
             {"document": "first article", "summary": "first summary"},

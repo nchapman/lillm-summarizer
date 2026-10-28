@@ -169,8 +169,14 @@ def load_jsonl(path: Path) -> list[dict[str, Any]]:
     return rows
 
 
-def sample_stream(records: Any, count: int, seed: int) -> list[dict[str, Any]]:
-    """Select a reproducible reservoir sample from an iterable dataset stream."""
+def sample_stream(
+    records: Any,
+    count: int,
+    seed: int,
+    exclude_ids: set[str] | None = None,
+) -> list[dict[str, Any]]:
+    """Select a reproducible reservoir sample, optionally excluding known record IDs."""
+    excluded = exclude_ids or set()
     if count <= 0:
         raise ValueError("count must be greater than zero")
     rng = random.Random(seed)
@@ -182,7 +188,7 @@ def sample_stream(records: Any, count: int, seed: int) -> list[dict[str, Any]]:
             "document": record.get("article") or record.get("document"),
             "reference": record.get("highlights") or record.get("summary"),
         }
-        if not candidate["document"] or not candidate["reference"]:
+        if not candidate["document"] or not candidate["reference"] or candidate["id"] in excluded:
             continue
         valid_seen += 1
         if len(sample) < count:

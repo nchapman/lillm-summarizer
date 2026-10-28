@@ -1,6 +1,6 @@
 # Tiny-model summarization evaluation
 
-This repo starts with **English news summarization**. The initial evaluation sample is drawn from the CNN/DailyMail 3.0.0 **test split**; it is a pilot for the inference/evaluation pipeline, not a training set. Keep the generated sample unchanged and reuse it for every model. The repo ignores downloaded data, model files, and run outputs.
+This repo starts with **English news summarization**. Evaluation samples are drawn from the CNN/DailyMail 3.0.0 **test split** and are never training data. The original 50-example pilot is retained as a stable pipeline/baseline set; a separate 250-example confirmation set is used to check whether its comparisons generalize. Preserve each generated file and use the same examples for every model. The repo ignores downloaded data, model files, and run outputs.
 
 See [PLAN.md](PLAN.md) for the broader benchmark and LoRA phases, and [BASELINE_RESULTS.md](BASELINE_RESULTS.md) for the completed Q4 pilot comparison.
 
@@ -25,6 +25,17 @@ tinyllm-eval prepare-cnn-dm --count 50 --seed 20261028
 This reads the test split as a stream and performs seeded reservoir sampling. Streaming still scans the split; it can take time on first use. Preserve `data/eval/cnn_dailymail_test_pilot.jsonl` and use this exact file across all model runs. The seed is not a substitute for preserving the generated file (dataset ordering can change upstream). The command refuses to overwrite an existing sample; pass `--overwrite` only when you intentionally want to replace it.
 
 The rows contain `id`, `document`, `reference`, dataset/config/split, and sampling seed. Do not copy these records into LoRA training data. The CNN/DailyMail source texts and reference summaries are not tracked by Git.
+
+Generate the independent confirmation set by excluding the frozen pilot's IDs:
+
+```bash
+tinyllm-eval prepare-cnn-dm \
+  --count 250 --seed 20261029 \
+  --exclude-input data/eval/cnn_dailymail_test_pilot.jsonl \
+  --output data/eval/cnn_dailymail_test_confirmation.jsonl
+```
+
+This is a second seeded reservoir sample from the remaining test examples, not a replacement for the original pilot. The confirmation set has 250 unique IDs and no article or ID overlap with the pilot. Its SHA-256 is `047f62c289d3eb08ce3dd5f3096736cf40f0414b1f602a052ee8e79a1377e75e`; 101/250 articles have ≤500 words, 115 have 501–1000, and 34 have >1000. Keep the JSONL itself for exact reuse; the exclusion-source hash is recorded in every row.
 
 ## Run one model through llama.cpp
 
