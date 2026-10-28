@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit
-from urllib.request import HTTPRedirectHandler, Request, build_opener, urlopen
+from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 PROMPT_VERSION = "summary-v1"
 SYSTEM_PROMPT = (
@@ -54,6 +54,13 @@ def _parse_judge_response(text: str) -> dict[str, Any]:
     if not isinstance(rationale, str):
         raise ValueError("Judge field 'rationale' must be a string")
     return result
+
+
+class NoRedirectHandler(HTTPRedirectHandler):
+    """Keep bearer tokens scoped to their explicitly configured endpoint."""
+
+    def redirect_request(self, _request, _fp, _code, _message, _headers, _new_url):
+        return None
 
 
 def _validate_judge_base_url(base_url: str, allow_insecure_loopback: bool = False) -> None:
@@ -109,10 +116,6 @@ def request_judgment(
         },
         method="POST",
     )
-
-    class NoRedirectHandler(HTTPRedirectHandler):
-        def redirect_request(self, _request, _fp, _code, _message, _headers, _new_url):
-            return None
 
     opener = build_opener(NoRedirectHandler)
     try:
@@ -215,14 +218,16 @@ def request_summary(
     max_new_tokens: int,
     timeout: float,
     *,
-    temperature: float = 0.0,
+    api_key: str | None = None,
+    temperature: float | None = 0.0,
     top_p: float | None = None,
     top_k: int | None = None,
     min_p: float | None = None,
     presence_penalty: float | None = None,
     repeat_penalty: float | None = None,
+    reasoning_effort: str | None = None,
 ) -> tuple[str, dict[str, Any], float]:
-    """Request one chat completion from a llama.cpp-compatible endpoint."""
+    """Request one chat completion from an OpenAI-compatible endpoint."""
     url = base_url.rstrip("/") + "/chat/completions"
     body = {
         "model": model,
@@ -230,11 +235,14 @@ def request_summary(
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": USER_PROMPT_TEMPLATE.format(document=document)},
         ],
-        "temperature": temperature,
         "seed": 42,
         "max_tokens": max_new_tokens,
         "stream": False,
     }
+    if temperature is not None:
+        body["temperature"] = temperature
+    if reasoning_effort is not None:
+        body["reasoning_effort"] = reasoning_effort
     optional_sampling = {
         "top_p": top_p,
         "top_k": top_k,
@@ -243,15 +251,18 @@ def request_summary(
         "repeat_penalty": repeat_penalty,
     }
     body.update({key: value for key, value in optional_sampling.items() if value is not None})
+    headers = {"Content-Type": "application/json"}
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
     request = Request(
         url,
         data=json.dumps(body).encode("utf-8"),
-        headers={"Content-Type": "application/json"},
+        headers=headers,
         method="POST",
     )
     started = time.perf_counter()
     try:
-        with urlopen(request, timeout=timeout) as response:
+        with build_opener(NoRedirectHandler).open(request, timeout=timeout) as response:
             payload = json.loads(response.read().decode("utf-8"))
     except HTTPError as exc:
         detail = exc.read().decode("utf-8", errors="replace")[:1000]

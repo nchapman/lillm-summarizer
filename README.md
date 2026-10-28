@@ -84,6 +84,31 @@ tinyllm-eval run \
 
 The harness uses one fixed summarization prompt, seed 42, and requests one completion at a time. Sampler flags are sent per request and recorded in metadata; `--max-new-tokens` defaults to 192. Use the matching model-card settings above for each candidate and update its revision/quantization metadata. It saves raw output, reference, timing, token usage, and run metadata. Metadata is marked `running`, `complete`, or `failed`, with the completed row count, so a failed batch is not mistaken for complete. Output is never overwritten unless `--overwrite` is supplied.
 
+### Hosted control: GPT-6 Luna through OpenRouter
+
+`openai/gpt-6-luna` is a hosted reference/control, not part of the local ≤2B/Q4 cohort. It uses the same prompt and frozen pilot but provider-managed weights and decoding. [OpenRouter's model page](https://openrouter.ai/openai/gpt-6-luna) and [OpenAI's model docs](https://developers.openai.com/api/docs/models/gpt-6-luna) advertise support for `max_tokens`, `seed`, and reasoning effort `none`; OpenRouter does not advertise temperature/top-p controls for this model, so the request omits them and disables reasoning. A pinned model slug and provider name are recorded in metadata.
+
+The command reads `OPENROUTER_API_KEY` from the project `.env` (without overriding a shell value), sends the article text to OpenRouter, and does not require a llama-server or GPU:
+
+```bash
+tinyllm-eval run \
+  --input data/eval/cnn_dailymail_test_pilot.jsonl \
+  --output runs/gpt-6-luna-openrouter/predictions.jsonl \
+  --model openai/gpt-6-luna \
+  --model-revision openai/gpt-6-luna-20260922 --quantization provider-managed \
+  --server-version OpenRouter --base-url https://openrouter.ai/api/v1 \
+  --api-key-env OPENROUTER_API_KEY --reasoning-effort none --max-new-tokens 256
+```
+
+The measured 50-example generation cost was about `$0.0082` per OpenRouter usage records; rates can change. Score and judge it like the local outputs:
+
+```bash
+tinyllm-eval score --input runs/gpt-6-luna-openrouter/predictions.jsonl
+tinyllm-eval judge \
+  --input runs/gpt-6-luna-openrouter/predictions.jsonl \
+  --output runs/gpt-6-luna-openrouter/judgments.jsonl
+```
+
 Score prediction output with ROUGE F1:
 
 ```bash

@@ -5,7 +5,32 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from tinyllm_eval.cli import judge_predictions, load_project_env_file, prepare_dataset
+from tinyllm_eval.cli import (
+    _resolve_inference_auth,
+    judge_predictions,
+    load_project_env_file,
+    prepare_dataset,
+)
+
+
+class InferenceEndpointTests(unittest.TestCase):
+    def test_loads_openrouter_key_for_the_explicit_openrouter_endpoint(self):
+        args = SimpleNamespace(
+            base_url="https://openrouter.ai/api/v1",
+            api_key_env="OPENROUTER_API_KEY",
+        )
+        with patch("tinyllm_eval.cli.load_project_env_file"), patch.dict(
+            "os.environ", {"OPENROUTER_API_KEY": "test-key"}, clear=True
+        ):
+            api_key, is_remote = _resolve_inference_auth(args)
+
+        self.assertEqual(api_key, "test-key")
+        self.assertTrue(is_remote)
+
+    def test_rejects_non_loopback_non_openrouter_inference_endpoint(self):
+        args = SimpleNamespace(base_url="https://example.invalid/api/v1", api_key_env=None)
+        with self.assertRaisesRegex(ValueError, "local HTTP or OpenRouter HTTPS"):
+            _resolve_inference_auth(args)
 
 
 class PrepareDatasetTests(unittest.TestCase):

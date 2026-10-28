@@ -72,6 +72,8 @@ Use a fixed, held-out set with examples sampled across input lengths and difficu
 
 For the default news task, CNN/DailyMail is a practical first benchmark; use its summarization version/splits and do not train on validation/test material. Add XSum later if we want a more aggressively abstractive, higher factuality-risk test. GovReport is a useful long-document follow-up, but its very long inputs and summaries are a separate capability regime, not a drop-in replacement for the first benchmark.
 
+For a hosted reference outside the ≤2B local shortlist, evaluate `openai/gpt-6-luna` through OpenRouter using the same prompt and frozen sample. Label its provider-managed decoding and cost separately; it is a quality control, not a trainable/quantized candidate.
+
 Report at least:
 - ROUGE-1/2/L (with tokenizer/normalization settings stated) for reference overlap, not as the sole quality measure.
 - A source-grounded LLM judge measuring factuality, coverage, relevance, concision, readability, and overall quality. The judge sees the source and candidate summary, not the reference; record unsupported-claim notes. Human preference review may be added later but is not required for this comparison.

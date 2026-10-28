@@ -9,6 +9,7 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 from .core import (
     OPENROUTER_API_KEY_ENV,
@@ -49,7 +50,42 @@ def prepare_dataset(args: argparse.Namespace) -> None:
     print("Note: streaming reservoir sampling scans the test split; preserve the resulting file to reuse this exact sample.")
 
 
+def _resolve_inference_auth(args: argparse.Namespace) -> tuple[str | None, bool]:
+    parsed = urlsplit(args.base_url)
+    if parsed.username or parsed.password or parsed.query or parsed.fragment:
+        raise ValueError("Inference base URL must not contain credentials, query, or fragment")
+    host = (parsed.hostname or "").lower()
+    is_local = parsed.scheme == "http" and host in {"localhost", "127.0.0.1", "::1"}
+    is_openrouter = (
+        parsed.scheme == "https"
+        and host == "openrouter.ai"
+        and parsed.path.rstrip("/") == "/api/v1"
+    )
+    if is_local:
+        if args.api_key_env:
+            raise ValueError("Do not pass an API key to a local inference endpoint")
+        return None, False
+    if not is_openrouter:
+        raise ValueError("Inference base URL must be local HTTP or OpenRouter HTTPS at /api/v1")
+    if not args.api_key_env:
+        raise ValueError("OpenRouter inference requires --api-key-env OPENROUTER_API_KEY")
+    load_project_env_file()
+    api_key = os.environ.get(args.api_key_env)
+    if not api_key:
+        raise RuntimeError(f"Set {args.api_key_env} in the environment or repo-root .env file")
+    return api_key, True
+
+
 def run_evaluation(args: argparse.Namespace) -> None:
+    api_key, is_remote = _resolve_inference_auth(args)
+    if is_remote and any(
+        value is not None
+        for value in (args.temperature, args.top_p, args.top_k, args.min_p, args.presence_penalty, args.repeat_penalty)
+    ):
+        raise ValueError("This OpenRouter control does not advertise sampling controls; omit sampler flags")
+    if not is_remote and args.reasoning_effort is not None:
+        raise ValueError("--reasoning-effort is only supported for OpenRouter inference")
+    temperature = args.temperature if args.temperature is not None else (None if is_remote else 0.0)
     records = load_jsonl(args.input)
     if args.limit is not None:
         if args.limit <= 0:
@@ -72,7 +108,9 @@ def run_evaluation(args: argparse.Namespace) -> None:
         "input_sha256": sha256_file(args.input),
         "example_count": len(records),
         "prompt_version": PROMPT_VERSION,
-        "temperature": args.temperature,
+        "temperature": temperature,
+        "reasoning_effort": args.reasoning_effort,
+        "api_key_env": args.api_key_env,
         "top_p": args.top_p,
         "top_k": args.top_k,
         "min_p": args.min_p,
@@ -80,7 +118,7 @@ def run_evaluation(args: argparse.Namespace) -> None:
         "repeat_penalty": args.repeat_penalty,
         "seed": 42,
         "max_new_tokens": args.max_new_tokens,
-        "server_generation_settings": "Sampling values are sent per request; pin llama.cpp launch options separately",
+        "server_generation_settings": "Generation settings are sent per request; omitted values use endpoint/provider defaults",
     }
     metadata.update({"status": "running", "completed_examples": 0})
     metadata_path.write_text(json.dumps(metadata, indent=2) + "\n", encoding="utf-8")
@@ -95,12 +133,14 @@ def run_evaluation(args: argparse.Namespace) -> None:
                     row["document"],
                     args.max_new_tokens,
                     args.timeout,
-                    temperature=args.temperature,
+                    api_key=api_key,
+                    temperature=temperature,
                     top_p=args.top_p,
                     top_k=args.top_k,
                     min_p=args.min_p,
                     presence_penalty=args.presence_penalty,
                     repeat_penalty=args.repeat_penalty,
+                    reasoning_effort=args.reasoning_effort,
                 )
                 record: dict[str, Any] = {
                     "id": row["id"],
@@ -249,7 +289,7 @@ def build_parser() -> argparse.ArgumentParser:
     prepare.add_argument("--overwrite", action="store_true")
     prepare.set_defaults(func=prepare_dataset)
 
-    run = commands.add_parser("run", help="generate summaries through a local OpenAI-compatible endpoint")
+    run = commands.add_parser("run", help="generate summaries through a local or OpenRouter endpoint")
     run.add_argument("--input", type=Path, required=True)
     run.add_argument("--output", type=Path, required=True)
     run.add_argument("--model", required=True, help="model identifier expected by the server")
@@ -258,12 +298,14 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--server-version", default="unrecorded", help="for example llama.cpp commit SHA")
     run.add_argument("--base-url", default="http://127.0.0.1:8080/v1")
     run.add_argument("--max-new-tokens", type=int, default=192)
-    run.add_argument("--temperature", type=float, default=0.0)
+    run.add_argument("--temperature", type=float)
     run.add_argument("--top-p", type=float)
     run.add_argument("--top-k", type=int)
     run.add_argument("--min-p", type=float)
     run.add_argument("--presence-penalty", type=float)
     run.add_argument("--repeat-penalty", type=float)
+    run.add_argument("--api-key-env", choices=[OPENROUTER_API_KEY_ENV])
+    run.add_argument("--reasoning-effort", choices=["none", "low", "medium", "high", "xhigh", "max"])
     run.add_argument("--timeout", type=float, default=600)
     run.add_argument("--limit", type=int)
     run.add_argument("--overwrite", action="store_true")

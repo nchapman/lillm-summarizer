@@ -12,8 +12,13 @@ class InferenceRequestTests(unittest.TestCase):
 
         class Handler(BaseHTTPRequestHandler):
             def do_POST(self):
-                received["path"] = self.path
-                received["body"] = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+                received.setdefault("calls", []).append(
+                    {
+                        "path": self.path,
+                        "authorization": self.headers.get("Authorization"),
+                        "body": json.loads(self.rfile.read(int(self.headers["Content-Length"]))),
+                    }
+                )
                 response = {
                     "choices": [
                         {
@@ -49,6 +54,17 @@ class InferenceRequestTests(unittest.TestCase):
                 min_p=0.0,
                 presence_penalty=1.5,
                 repeat_penalty=1.05,
+                api_key="test-api-key",
+            )
+            request_summary(
+                f"http://127.0.0.1:{server.server_port}/v1",
+                "test-model",
+                "The input document.",
+                max_new_tokens=64,
+                timeout=5,
+                api_key="test-api-key",
+                temperature=None,
+                reasoning_effort="none",
             )
         finally:
             server.shutdown()
@@ -59,15 +75,58 @@ class InferenceRequestTests(unittest.TestCase):
         self.assertEqual(metadata["usage"]["completion_tokens"], 4)
         self.assertEqual(metadata["finish_reason"], "stop")
         self.assertGreaterEqual(elapsed, 0)
-        self.assertEqual(received["path"], "/v1/chat/completions")
-        self.assertEqual(received["body"]["temperature"], 0.7)
-        self.assertEqual(received["body"]["top_p"], 0.95)
-        self.assertEqual(received["body"]["top_k"], 20)
-        self.assertEqual(received["body"]["min_p"], 0.0)
-        self.assertEqual(received["body"]["presence_penalty"], 1.5)
-        self.assertEqual(received["body"]["repeat_penalty"], 1.05)
-        self.assertEqual(received["body"]["seed"], 42)
-        self.assertIn("The input document.", received["body"]["messages"][1]["content"])
+        self.assertEqual(len(received["calls"]), 2)
+        self.assertEqual(received["calls"][0]["path"], "/v1/chat/completions")
+        self.assertEqual(received["calls"][0]["authorization"], "Bearer test-api-key")
+        self.assertEqual(received["calls"][0]["body"]["temperature"], 0.7)
+        self.assertEqual(received["calls"][0]["body"]["top_p"], 0.95)
+        self.assertEqual(received["calls"][0]["body"]["top_k"], 20)
+        self.assertEqual(received["calls"][0]["body"]["min_p"], 0.0)
+        self.assertEqual(received["calls"][0]["body"]["presence_penalty"], 1.5)
+        self.assertEqual(received["calls"][0]["body"]["repeat_penalty"], 1.05)
+        self.assertEqual(received["calls"][0]["body"]["seed"], 42)
+        self.assertIn("The input document.", received["calls"][0]["body"]["messages"][1]["content"])
+        self.assertEqual(received["calls"][1]["authorization"], "Bearer test-api-key")
+        self.assertNotIn("temperature", received["calls"][1]["body"])
+        self.assertEqual(received["calls"][1]["body"]["reasoning_effort"], "none")
+
+    def test_does_not_forward_api_key_through_redirects(self):
+        class Handler(BaseHTTPRequestHandler):
+            def do_POST(self):
+                self.send_response(302)
+                self.send_header("Location", f"http://127.0.0.1:{self.server.server_port}/capture")
+                self.end_headers()
+
+            def do_GET(self):
+                self.server.redirect_requests += 1
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(b'{"choices": []}')
+
+            def log_message(self, *_args):
+                pass
+
+        server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        server.redirect_requests = 0
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            with self.assertRaisesRegex(RuntimeError, "HTTP 302"):
+                request_summary(
+                    f"http://127.0.0.1:{server.server_port}/v1",
+                    "test-model",
+                    "The input document.",
+                    max_new_tokens=64,
+                    timeout=5,
+                    api_key="test-api-key",
+                )
+        finally:
+            server.shutdown()
+            thread.join(timeout=5)
+            server.server_close()
+
+        self.assertEqual(server.redirect_requests, 0)
 
 
 class JudgeRequestTests(unittest.TestCase):
