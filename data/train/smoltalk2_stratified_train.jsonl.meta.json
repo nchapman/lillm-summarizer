@@ -1,0 +1,40 @@
+{
+  "created_at": "2026-10-29T01:14:51.024384+00:00",
+  "input": "data/train/smoltalk2_smol-summarize_no_think.jsonl",
+  "input_sha256": "a28f9e9f764a7579a54f5e361eb55f28e909b6e31ba3944bdb3407a7e341813c",
+  "train_output": "data/train/smoltalk2_stratified_train.jsonl",
+  "val_output": "data/train/smoltalk2_stratified_val.jsonl",
+  "report": {
+    "seed": 20261128,
+    "total_input_rows": 92704,
+    "strata": {
+      "one_line/medium": {
+        "available": 25875,
+        "train": 6699,
+        "val": 279
+      },
+      "one_line/short": {
+        "available": 6974,
+        "train": 1805,
+        "val": 75
+      },
+      "three_sentence/long": {
+        "available": 17897,
+        "train": 4633,
+        "val": 193
+      },
+      "three_sentence/medium": {
+        "available": 34902,
+        "train": 9037,
+        "val": 377
+      },
+      "three_sentence/short": {
+        "available": 7056,
+        "train": 1826,
+        "val": 76
+      }
+    },
+    "train_rows": 24000,
+    "val_rows": 1000
+  }
+}

@@ -80,6 +80,10 @@ python scripts/train_lora.py --adapter-dir adapters/granite4-1b-24k-s42
 
 `train_lora.py` trains with per-epoch validation loss, early stopping (patience 1), best-checkpoint restoration, held-out base-vs-adapter generations, the fresh-base reload check, and writes `train_meta.json` (data hashes, loss curves, applied LoRA targets, versions). Generated splits and adapters are untracked.
 
+### Adapter deployment path (verified, unmerged)
+
+Adapters stay separate artifacts for a general-purpose base model with use-case adapters; no merging. Verified end-to-end on the pinned llama.cpp build with the Q4_K_XL base: convert the native PEFT adapter with `convert_lora_to_gguf.py` (note: `--base` requires the local snapshot directory of the bf16 base, e.g. the HF cache path, not a repo ID), then serve with `llama-server --lora adapter.gguf`. The adapter applies to the quantized base at runtime (LoRA is computed on activations, never merged into quantized weights); a greedy A/B on the same prompt produced different output with vs without the sidecar, confirming application. The server also supports hot-swapping adapters without restart (`--lora-init-without-apply` plus POST `/lora-adapters`) and multiple/scaled adapters. Adapter-sidecar runs on the frozen evals should be measured as a separate deployment configuration — adapters train on bf16 weights, so gains do not automatically transfer one-to-one to a Q4 base. The verified conversion covered attention targets (q/k/v/o → `blk.N.attn_q.weight.lora_*`); the attention+MLP arm's `shared_mlp` targets still need a conversion check.
+
 ## Run one model through llama.cpp
 
 The repo's llama.cpp checkout has a CUDA build at `/home/nchapman/Code/llama.cpp/build-cuda/bin/llama-server` (commit `0878f7c`, build `0.7.0-dev`). It is external to this repo and is not modified by this harness. Hub checks found `UD-Q4_K_XL` files for Qwen3.5, LFM2.5, and Granite; MiniCPM5 uses the official `Q4_K_M` GGUF:
