@@ -19,9 +19,11 @@ from pathlib import Path
 from tinyllm_eval.core import SYSTEM_PROMPT, PROMPT_VERSION
 from tinyllm_eval.training_data import load_chat_rows
 from tinyllm_eval.training_checks import (
-    check_fresh, load_prepared, check_sequence, source_groups, checkpoint_schedule,
+    check_fresh, load_prepared, source_groups, checkpoint_schedule,
     check_step_budget, apply_step_budget,
 )
+
+from tinyllm_eval.training_audit import audit_prepared_dataset
 
 DEFAULT_MODEL = "ibm-granite/granite-4.0-1b"
 DEFAULT_TRAIN = Path("data/train/smoltalk2_stratified_train.jsonl")
@@ -174,19 +176,11 @@ def main() -> None:
         args=config,
     )
     if args.prepared_manifest:
-        def audit(dataset, rows):
-            if len(dataset) != len(rows):
-                raise ValueError("prepared dataset row count mismatch")
-            for prepared, original in zip(dataset, rows):
-                if len(prepared["input_ids"]) != original["token_count"]:
-                    raise ValueError("prepared sequence length mismatch")
-                batch = trainer.data_collator([prepared])
-                ids = batch["input_ids"].reshape(-1).tolist()
-                labels = batch["labels"].reshape(-1).tolist()
-                check_sequence(ids, labels, original["token_count"], tokenizer.eos_token_id)
-        audit(trainer.train_dataset, train_rows)
+        audit_prepared_dataset(trainer.train_dataset, train_rows, tokenizer,
+                               trainer.data_collator, batch_size=args.batch_size)
         for key, rows in eval_groups.items():
-            audit(trainer.eval_dataset[key], rows)
+            audit_prepared_dataset(trainer.eval_dataset[key], rows, tokenizer,
+                                   trainer.data_collator, batch_size=eval_batch_size)
     trainer.add_callback(EarlyStoppingCallback(early_stopping_patience=args.patience))
     if args.stop_after_steps is not None:
         class StepBudgetCallback(TrainerCallback):
