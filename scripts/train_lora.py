@@ -33,7 +33,7 @@ from train_smoke import generate, next_token_agreement, resolve_target_modules  
 DEFAULT_MODEL = "ibm-granite/granite-4.0-1b"
 DEFAULT_TRAIN = Path("data/train/smoltalk2_stratified_train.jsonl")
 DEFAULT_VAL = Path("data/train/smoltalk2_stratified_val.jsonl")
-LORA_TARGETS = ["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"]
+LORA_TARGETS = ["q_proj", "k_proj", "v_proj", "o_proj", "input_linear", "output_linear"]
 
 
 def parse_args() -> argparse.Namespace:

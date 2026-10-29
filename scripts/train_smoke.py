@@ -31,7 +31,12 @@ from trl import SFTConfig, SFTTrainer
 
 DEFAULT_MODEL = "ibm-granite/granite-4.0-1b"
 DEFAULT_DATA = Path("data/train/smoltalk2_smol-summarize_no_think.jsonl")
-LORA_TARGET_CANDIDATES = ["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"]
+# Granite 4.0 uses shared_mlp.{input,output}_linear instead of Llama-style
+# gate/up/down_proj; attention + MLP together is unsloth's documented best config.
+LORA_TARGET_CANDIDATES = [
+    "q_proj", "k_proj", "v_proj", "o_proj",
+    "input_linear", "output_linear",
+]
 
 
 def parse_args() -> argparse.Namespace:
