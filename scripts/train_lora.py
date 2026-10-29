@@ -124,6 +124,7 @@ def main() -> None:
         learning_rate=args.learning_rate,
         warmup_ratio=0.1,
         logging_steps=20,
+        disable_tqdm=True,
         bf16=True,
         max_length=args.max_length,
         completion_only_loss=True,
