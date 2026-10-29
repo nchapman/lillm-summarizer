@@ -7,7 +7,7 @@ Unsloth). This heuristic does not establish deployment equivalence. Sample
 generations show base (adapter disabled) versus adapter behavior after training.
 
 Usage (defaults target Granite 4.0 1B):
-    python scripts/train_smoke.py --adapter-dir adapters/granite4-1b-smoke
+    uv run --locked --group train python scripts/train_smoke.py --adapter-dir adapters/granite4-1b-smoke
 """
 
 from __future__ import annotations

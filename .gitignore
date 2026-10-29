@@ -10,6 +10,8 @@ __pycache__/
 data/downloads/
 data/eval/*.jsonl
 data/train/*.jsonl
+# Private Folio-derived pools, length audits, and provenance sidecars
+data/train/folio*/
 runs/
 models/
 adapters/

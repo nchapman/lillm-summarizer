@@ -5,7 +5,7 @@ restoration; saves the native adapter plus a metadata record; and repeats the
 smoke-test artifact checks (held-out generations and a fresh-base reload).
 
 Usage (Granite 4.0 1B defaults):
-    python scripts/train_lora.py --adapter-dir adapters/granite4-1b-24k-s42
+    uv run --locked --group train python scripts/train_lora.py --adapter-dir adapters/granite4-1b-24k-s42
 """
 
 from __future__ import annotations

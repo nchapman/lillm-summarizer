@@ -8,18 +8,53 @@ See [PLAN.md](PLAN.md) for the broader benchmark and LoRA phases, [BASELINE_RESU
 
 Local machine: NVIDIA GB10 system (ARM64, CUDA 13.0, 128 GiB unified system memory). The baseline runs load one model server at a time and stop it before loading another; check available host memory before each new workload.
 
-Python 3.12 is recommended. Install the small evaluation package and optional data/metric dependencies:
+Use **uv ≥0.11.23** for all Python dependencies and commands. `.python-version` pins Python 3.12.12; `pyproject.toml` declares dependencies and the committed `uv.lock` freezes their resolution for local ARM64 and remote x86_64 machines. Data preparation and ROUGE dependencies are included by default, along with the `dev` group for pytest; the default environment does not install Torch or CUDA packages.
 
 ```bash
-python -m venv .venv
-source .venv/bin/activate
-python -m pip install -e '.[data,metrics,dev]'
+uv sync --locked
+uv run --locked tinyllm-eval --help
+uv run --locked pytest tests/ -q
 ```
+
+uv installs the pinned Python if needed and creates an isolated `.venv`; no activation or system-Python changes are required. Install uv using its [official installation instructions](https://docs.astral.sh/uv/getting-started/installation/) if unavailable. Use `uv add` / `uv add --group train` for intentional dependency changes, inspect the resulting `pyproject.toml` and `uv.lock` diff, and commit both. Use `uv lock` only when intentionally updating the resolution; setup and execution use `--locked` so dependency drift fails rather than silently rewriting the lock.
+
+### GPU training setup (local or remote Linux)
+
+The `train` dependency group pins the previously verified Unsloth/TRL/PEFT/Transformers stack and CUDA 13.0 Torch/torchvision. The explicit official PyTorch CUDA index also supplies xFormers on x86_64; ARM64 does not require xFormers. Training uses Python 3.12, Linux x86_64 or ARM64, an NVIDIA driver compatible with CUDA 13.0, and a BF16-capable GPU. The pod's preinstalled Torch is not reused.
+
+From a code-only checkout on the GPU machine:
+
+```bash
+uv sync --locked --group train
+uv pip check
+uv run --locked --group train pytest tests/ -q
+uv run --locked --group train python scripts/train_lora.py --help
+```
+
+Keep `--group train` on GPU commands. A later plain `uv sync --locked` switches back to the lightweight evaluation environment and removes training-only packages; re-add the group to restore the locked training environment. The default evaluation environment remains usable on non-GPU machines; the Linux-only training group is not a macOS/Windows training setup.
+
+ARM64 packaging note: NVIDIA's `nvidia-cusparselt-cu13==0.8.1` ARM wheel has an internal `manylinux2014_sbsa` tag despite an `aarch64` filename and AArch64 ELF payload. This makes `uv pip check` report that one package as built for a different platform; the same artifact exists in the previously working GB10 stack. The locked ARM64 environment passes the BF16 CUDA check below, and the x86_64 pod passes `uv pip check` cleanly. Do not hand-edit wheel metadata or ignore other dependency errors.
+
+Before loading a model, check the GPU runtime (Unsloth must be imported first):
+
+```bash
+uv run --locked --group train python - <<'PY'
+import unsloth
+import torch
+assert torch.cuda.is_available(), "CUDA unavailable"
+assert torch.cuda.is_bf16_supported(), "BF16 unavailable"
+x = torch.ones((128, 128), device="cuda", dtype=torch.bfloat16)
+assert torch.isfinite(x @ x).all().item(), "Nonfinite BF16 matmul"
+print(torch.__version__, torch.version.cuda, torch.cuda.get_device_name(0))
+PY
+```
+
+These are environment checks, not an 8K model-training smoke test. Complete the model/data preflight before starting a full run. Keep private data and derived reports out of Git and public storage; transfer them separately over authenticated SSH only when ready. Disable Hub telemetry with `HF_HUB_DISABLE_TELEMETRY=1` / `DO_NOT_TRACK=1`; training already uses `report_to=[]`. Verify whether pod storage is persistent and arrange checkpoint backups before a long run. No credentials, SSH keys, or private datasets belong in the code checkout or lockfile.
 
 ## Prepare the fixed pilot set
 
 ```bash
-tinyllm-eval prepare-cnn-dm --count 50 --seed 20261028
+uv run --locked tinyllm-eval prepare-cnn-dm --count 50 --seed 20261028
 ```
 
 This reads the test split as a stream and performs seeded reservoir sampling. Streaming still scans the split; it can take time on first use. Preserve `data/eval/cnn_dailymail_test_pilot.jsonl` and use this exact file across all model runs. The seed is not a substitute for preserving the generated file (dataset ordering can change upstream). The command refuses to overwrite an existing sample; pass `--overwrite` only when you intentionally want to replace it.
@@ -29,7 +64,7 @@ The rows contain `id`, `document`, `reference`, dataset/config/split, and sampli
 Generate the independent confirmation set by excluding the frozen pilot's IDs:
 
 ```bash
-tinyllm-eval prepare-cnn-dm \
+uv run --locked tinyllm-eval prepare-cnn-dm \
   --count 250 --seed 20261029 \
   --exclude-input data/eval/cnn_dailymail_test_pilot.jsonl \
   --output data/eval/cnn_dailymail_test_confirmation.jsonl
@@ -50,32 +85,48 @@ The system message carries the instruction; the user message is the raw page tex
 The training data is `HuggingFaceTB/smoltalk2`, config `SFT`, split `smoltalk_smollm3_smol_summarize_no_think` (96,061 rows; news-article and email summarization targets distilled from a larger teacher). Provenance: the news portion comes from the CNN/DailyMail 3.0.0 **train** split — never the test split our evaluation samples — and rows carry one of two generic length instructions ("up to three sentences" or "one very short sentence") in `chat_template_kwargs.custom_instructions`; the news/email split is not recoverable from the data. Both content types are kept for general web-page summarization.
 
 ```bash
-tinyllm-eval prepare-smoltalk
+uv run --locked tinyllm-eval prepare-smoltalk
 ```
 
 The command pins and records the Hub revision, streams the split, drops exact duplicate documents and any row whose 8-gram containment against both frozen evaluation files reaches 0.2, prepends the fixed summary-v2 system prompt, and writes `data/train/smoltalk2_smol-summarize_no_think.jsonl` plus a `.meta.json` report (only the meta report is tracked). Current output: 92,704 rows kept (59,855 `three_sentence`, 32,849 `one_line`), 3,333 duplicates and 24 leakage near-duplicates dropped (max kept score 0.198). Target shape: `one_line` targets are one sentence (p50 18 words); `three_sentence` targets are p50 62 words but only half are 2–3 sentences — 16% run 4–6 sentences and 33% are 7+ (p75 163 words), i.e. the teacher frequently exceeded its "up to three sentences" instruction on long articles, so treat that tag as instruction provenance rather than a length guarantee. Rows keep `document_words`/`target_words`/`tag`/`leakage_score` fields for later mix or length ablations. As with the evaluation files, preserve the generated JSONL for exact reuse; regenerate only with `--overwrite` and an intentional revision change.
+
+## Import a private Folio SFT export
+
+Keep the raw export outside the repository. Its directory must contain `sft.jsonl.gz`, the paired `audit.jsonl.gz`, and `report.json`:
+
+```bash
+uv run --locked tinyllm-eval prepare-folio --source-dir /path/to/private/sft_export
+```
+
+This local-only command streams the export into `data/train/folio_sft_v1/aligned.jsonl` with a `.meta.json` sidecar. The entire `data/train/folio*/` directory is Git-ignored, including provenance and any later length audits or splits. Both generated files are owner-only (0600). **Never commit private records, excerpts, export hashes, provenance manifests, or generated reports.** If overriding `--output`, choose an equally private, ignored destination.
+
+The importer verifies both compressed files against the source report, then checks every audit row index and document/summary hash. It replaces only the system message with our fixed `summary-v2` prompt; user text and assistant targets remain exact, without stripping, wrapping, or adding model-specific special tokens. The trainer applies the model's native chat template and completion-only loss as usual. Verified content hashes, original row indices, and quality flags remain available outside the messages; private URLs, titles, and other page metadata are not copied from the audit into the aligned pool. Teacher model/prompt and the source's review status are retained in the private sidecar, not promoted to an endorsement of target quality.
+
+As with smoltalk, preparation deduplicates exact documents and excludes rows reaching 0.2 word 8-gram containment against the frozen pilot and confirmation inputs (`--eval-input` can override these). Invalid rows or broken provenance fail the import rather than being silently skipped. Existing outputs or sidecars require `--overwrite`; a failed validation leaves old files untouched.
+
+The result is **unsplit and not context-filtered**. Before assigning train/validation sets, audit the complete chats (including targets and EOS) with the exact training tokenizer/revision and choose an explicit context-length policy. Do not let the trainer silently truncate long sources or their summaries. Review upstream quality flags and provisional review status before selecting a training pool. Keep any resulting splits and diagnostics under the ignored private directory, and use explicit `--train`/`--val` paths for a separately planned run. This import does not mix data into existing smoltalk splits, change the deployment prompt, or resume training/checkpoints.
 
 ## LoRA training smoke test (phase 3)
 
 `scripts/train_smoke.py` proves the Granite 4.0-1B training path end to end on a small slice of the prepared data:
 
 ```bash
-python scripts/train_smoke.py --adapter-dir adapters/granite4-1b-smoke
+uv run --locked --group train python scripts/train_smoke.py --adapter-dir adapters/granite4-1b-smoke
 ```
 
 It loads `ibm-granite/granite-4.0-1b`, attaches a LoRA adapter (r=16), trains two epochs on 197 rows with completion-only loss under the summary-v2 prompt, generates held-out base/adapter examples, saves the native adapter, and reloads it on a fresh base model via transformers + PEFT. The historical attention-only smoke run decreased loss 1.20 → 0.45 over 50 steps (~53 s) and generated coherent summaries. Its reload heuristic checked only the first 64 prompt positions: it did **not** establish assistant-output or deployment equivalence, nor prove the cause of cross-engine differences. Current scripts import Unsloth first and use `use_exact_model_name=True` to honor the requested repository/revision; historical runs were remapped to an Unsloth mirror. See the [pipeline audit](docs/granite-training-audit.md). Adapter artifacts and Unsloth's compile cache are untracked.
 
 Architecture note: every Granite 4.0 model shares the `granitemoehybrid` config class (`GraniteMoeHybridForCausalLM`), but the layer composition is what distinguishes them — `granite-4.0-1b` is 40 attention layers with zero Mamba layers and zero routed experts (a plain dense transformer, the standard architecture the plan intended), while `granite-4.0-h-1b` is the true hybrid (36 Mamba + 4 attention). The class name is a family-wide red herring. Its MLP is `shared_mlp.{input,output}_linear` (no Llama-style gate/up/down projections exist), so the first training runs attached LoRA to attention projections only; unsloth's own ablation recommends attention + MLP together, so later runs add `input_linear`/`output_linear` to the targets. Current `train_meta.json`/`smoke_meta.json` record both the requested and the actually applied target modules from the saved `adapter_config.json`; historical smoke metadata recorded only requested targets.
 
-Pinned stack (also recorded in `adapters/*/smoke_meta.json`): unsloth 2026.10.10, trl 1.15.0, peft 0.19.1, transformers 4.57.6, torch 2.12.1+cu130. Unsloth installed cleanly on ARM64/CUDA 13 without touching the working torch build. Extend the same script to the other finalists before building the full training pipeline; per PLAN.md, the full comparison re-runs base models under summary-v2 first.
+Pinned stack (now declared in the uv `train` group and locked in `uv.lock`; also recorded in historical `adapters/*/smoke_meta.json`): unsloth 2026.10.10, trl 1.15.0, peft 0.19.1, transformers 4.57.6, torch 2.12.1+cu130. Unsloth installed cleanly on ARM64/CUDA 13 without touching the working torch build. Extend the same script to the other finalists before building the full training pipeline; per PLAN.md, the full comparison re-runs base models under summary-v2 first.
 
 ## Full LoRA training (phase 4 pilot)
 
 Split the prepared data into stratified train/validation sets (seeded, proportional over tag × document-length bands so short emails and long news stay represented; ~3,700 tokens/s measured on the GB10, so ~0.9 h per 24k-row epoch):
 
 ```bash
-tinyllm-eval subset-training   # 24,000 train + 1,000 val rows, seed 20261128
-python scripts/train_lora.py --adapter-dir adapters/granite4-1b-24k-s42
+uv run --locked tinyllm-eval subset-training   # 24,000 train + 1,000 val rows, seed 20261128
+uv run --locked --group train python scripts/train_lora.py --adapter-dir adapters/granite4-1b-24k-s42
 ```
 
 `train_lora.py` trains with per-epoch validation loss, early stopping (patience 1), best-checkpoint restoration, held-out base-vs-adapter generations, the limited fresh-base reload heuristic, and writes `train_meta.json` (data hashes/selected IDs, loss curves, applied LoRA targets, versions, generations). It now uses **all 1,000 validation rows by default**; an explicit `--val-limit` draws a seeded uniform sample from the entire file, not a sorted prefix. The stopped checkpoint-3000 run used the old default: 200/200 validation rows were `one_line`, so its loss **0.5058 is not mixed-task validation loss**. Do not compare that historical metric with the corrected validation split or silently resume using different validation data. Generated splits and adapters are untracked.
@@ -85,7 +136,7 @@ python scripts/train_lora.py --adapter-dir adapters/granite4-1b-24k-s42
 Keep the Q4 base and adapter separate. **Use BF16, not F16, for this Granite adapter.** [IBM warns that Granite 4.0-1B exceeds F16's numerical range](https://huggingface.co/ibm-granite/granite-4.0-1b-GGUF#known-issues) and recommends BF16 for its full-precision model. Our captured CUDA operands confirm the same range problem in checkpoint-3000's **full attention+MLP adapter**: an MLP activation of 83,001 exceeds F16's maximum of 65,504, and the F16 LoRA matmul produces infinities. The BF16 sidecar produces finite logits and coherent summaries in controlled spot checks. Export with an explicit dtype:
 
 ```bash
-python /home/nchapman/Code/llama.cpp/convert_lora_to_gguf.py \
+uv run --locked --group train python /home/nchapman/Code/llama.cpp/convert_lora_to_gguf.py \
   adapters/granite4-1b-24k-s42/checkpoints/checkpoint-3000 \
   --base ~/.cache/huggingface/hub/models--ibm-granite--granite-4.0-1b/snapshots/6a7381ba1f54d684ff508d991aeb7dc580157103 \
   --outtype bf16 --outfile /tmp/granite24k_epoch1_lora-bf16.gguf
@@ -115,7 +166,7 @@ The repo's llama.cpp checkout has a CUDA build at `/home/nchapman/Code/llama.cpp
 Use a pinned Hub commit and explicit local file, because llama.cpp's `-hf` short form fetches the current repo revision. Example for Qwen3.5-0.8B:
 
 ```bash
-hf download unsloth/Qwen3.5-0.8B-GGUF Qwen3.5-0.8B-UD-Q4_K_XL.gguf \
+uv run --locked hf download unsloth/Qwen3.5-0.8B-GGUF Qwen3.5-0.8B-UD-Q4_K_XL.gguf \
   --revision 6ab461498e2023f6e3c1baea90a8f0fe38ab64d0 \
   --local-dir models/qwen35-0.8b
 
@@ -133,7 +184,7 @@ Settings were checked against the [Qwen3.5-0.8B](https://huggingface.co/Qwen/Qwe
 In another shell, run the same frozen pilot for each served model:
 
 ```bash
-tinyllm-eval run \
+uv run --locked tinyllm-eval run \
   --input data/eval/cnn_dailymail_test_pilot.jsonl \
   --output runs/qwen35-0.8b-q4/smoke.jsonl \
   --model qwen35-0.8b \
@@ -146,7 +197,7 @@ tinyllm-eval run \
 The first call uses `--limit 3` and a separate `smoke.jsonl` output as an end-to-end smoke test. After checking outputs and prompt formatting, run the full 50-example pilot to a different output path:
 
 ```bash
-tinyllm-eval run \
+uv run --locked tinyllm-eval run \
   --input data/eval/cnn_dailymail_test_pilot.jsonl \
   --output runs/qwen35-0.8b-q4/predictions.jsonl \
   --model qwen35-0.8b \
@@ -165,7 +216,7 @@ The harness uses one fixed summarization prompt, seed 42, and requests one compl
 The command reads `OPENROUTER_API_KEY` from the project `.env` (without overriding a shell value), sends the article text to OpenRouter, and does not require a llama-server or GPU:
 
 ```bash
-tinyllm-eval run \
+uv run --locked tinyllm-eval run \
   --input data/eval/cnn_dailymail_test_pilot.jsonl \
   --output runs/gpt-6-luna-openrouter/predictions.jsonl \
   --model openai/gpt-6-luna \
@@ -177,8 +228,8 @@ tinyllm-eval run \
 The measured 50-example generation cost was about `$0.0082` per OpenRouter usage records; rates can change. Score and judge it like the local outputs:
 
 ```bash
-tinyllm-eval score --input runs/gpt-6-luna-openrouter/predictions.jsonl
-tinyllm-eval judge \
+uv run --locked tinyllm-eval score --input runs/gpt-6-luna-openrouter/predictions.jsonl
+uv run --locked tinyllm-eval judge \
   --input runs/gpt-6-luna-openrouter/predictions.jsonl \
   --output runs/gpt-6-luna-openrouter/judgments.jsonl
 ```
@@ -186,7 +237,7 @@ tinyllm-eval judge \
 Score prediction output with ROUGE F1:
 
 ```bash
-tinyllm-eval score --input runs/qwen35-0.8b-q4/predictions.jsonl
+uv run --locked tinyllm-eval score --input runs/qwen35-0.8b-q4/predictions.jsonl
 ```
 
 ROUGE is reference-overlap only, not a factuality or overall quality judgment. For a project-specific OpenRouter credential, add this line to the repo-root `.env` file (already git-ignored):
@@ -198,7 +249,7 @@ OPENROUTER_API_KEY=<your OpenRouter API key>
 Keep `.env` restricted to your user (`chmod 600 .env`). The judge loads this project-local file without overriding an `OPENROUTER_API_KEY` already set in the process environment. Then run the LLM judge on predictions:
 
 ```bash
-tinyllm-eval judge \
+uv run --locked tinyllm-eval judge \
   --input runs/qwen35-0.8b-q4/predictions.jsonl \
   --output runs/qwen35-0.8b-q4/judgments.jsonl
 ```
@@ -212,5 +263,5 @@ The initial 50-example pilot is sufficient to test the pipeline and surface obvi
 ## Tests
 
 ```bash
-python -m unittest discover -s tests -v
+uv run --locked pytest tests/ -q
 ```

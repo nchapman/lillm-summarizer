@@ -43,7 +43,7 @@ def prepare_dataset(args: argparse.Namespace) -> None:
     try:
         from datasets import load_dataset
     except ImportError as exc:
-        raise RuntimeError("Dataset preparation requires `pip install -e '.[data]'`") from exc
+        raise RuntimeError("Dataset preparation requires the project environment; run `uv sync --locked`") from exc
 
     excluded_ids: set[str] = set()
     excluded_input_sha256 = None
@@ -89,11 +89,11 @@ def prepare_smoltalk(args: argparse.Namespace) -> None:
     try:
         from datasets import load_dataset
     except ImportError as exc:
-        raise RuntimeError("Dataset preparation requires `pip install -e '.[data]'`") from exc
+        raise RuntimeError("Dataset preparation requires the project environment; run `uv sync --locked`") from exc
     try:
         from huggingface_hub import HfApi
     except ImportError as exc:
-        raise RuntimeError("Revision pinning requires the huggingface_hub package") from exc
+        raise RuntimeError("Revision pinning requires the project environment; run `uv sync --locked`") from exc
 
     revision = args.dataset_revision or HfApi().dataset_info(SMOLTALK2_DATASET_ID).sha
     eval_inputs = args.eval_input or list(DEFAULT_LEAKAGE_EVAL_INPUTS)
@@ -144,6 +144,21 @@ def prepare_smoltalk(args: argparse.Namespace) -> None:
     print(format_report_summary(report))
     print(f"Wrote {len(rows)} training rows to {args.output}")
     print(f"Prep metadata: {metadata_path}")
+
+
+def prepare_folio(args: argparse.Namespace) -> None:
+    from .folio_data import prepare_folio as import_folio
+
+    metadata = import_folio(
+        args.source_dir,
+        args.output,
+        eval_inputs=args.eval_input or list(DEFAULT_LEAKAGE_EVAL_INPUTS),
+        overwrite=args.overwrite,
+    )
+    print(json.dumps(metadata["report"], indent=2))
+    print(f"Source status: {metadata['source_status']}")
+    print(f"Wrote unsplit aligned pool to {args.output}; no token-length filtering or truncation")
+    print("Review source quality and audit context lengths before splitting or training.")
 
 
 def subset_training(args: argparse.Namespace) -> None:
@@ -431,7 +446,7 @@ def score_predictions(args: argparse.Namespace) -> None:
     try:
         from rouge_score import rouge_scorer
     except ImportError as exc:
-        raise RuntimeError("Scoring requires `pip install -e '.[metrics]'`") from exc
+        raise RuntimeError("Scoring requires the project environment; run `uv sync --locked`") from exc
 
     records = load_jsonl(args.input)
     if any(not isinstance(row.get("prediction"), str) or not row["prediction"].strip() for row in records):
@@ -497,6 +512,16 @@ def build_parser() -> argparse.ArgumentParser:
     prepare_smoltalk_parser.add_argument("--limit", type=int)
     prepare_smoltalk_parser.add_argument("--overwrite", action="store_true")
     prepare_smoltalk_parser.set_defaults(func=prepare_smoltalk)
+
+    folio = commands.add_parser(
+        "prepare-folio",
+        help="align a local Folio SFT/audit export to summary-v2 without truncation or splitting",
+    )
+    folio.add_argument("--source-dir", type=Path, required=True, help="directory containing sft.jsonl.gz, audit.jsonl.gz, report.json")
+    folio.add_argument("--output", type=Path, default=Path("data/train/folio_sft_v1/aligned.jsonl"))
+    folio.add_argument("--eval-input", type=Path, action="append", help="frozen eval input; repeatable, defaults to pilot + confirmation")
+    folio.add_argument("--overwrite", action="store_true")
+    folio.set_defaults(func=prepare_folio)
 
     subset = commands.add_parser(
         "subset-training",
