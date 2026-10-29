@@ -16,6 +16,26 @@ def checkpoint_schedule(eval_steps: int | None) -> dict:
             "eval_steps": eval_steps, "save_steps": eval_steps}
 
 
+def check_step_budget(stop_after_steps: int | None, eval_steps: int | None) -> None:
+    """Require an evaluation/save boundary without changing the LR horizon."""
+    if stop_after_steps is None:
+        return
+    if type(stop_after_steps) is not int or stop_after_steps <= 0:
+        raise ValueError("stop after steps must be a positive integer")
+    checkpoint_schedule(eval_steps)
+    if eval_steps is None or stop_after_steps % eval_steps:
+        raise ValueError("step budget requires --eval-steps and must be a multiple of it")
+
+
+def apply_step_budget(control, global_step: int, stop_after_steps: int):
+    """Stop at an optimizer-step boundary; preserve other callbacks' decisions."""
+    if global_step >= stop_after_steps:
+        control.should_training_stop = True
+        control.should_evaluate = True
+        control.should_save = True
+    return control
+
+
 def check_fresh(adapter_dir: Path, resume: Path | None) -> None:
     if resume is not None:
         raise ValueError("prepared runs cannot resume")

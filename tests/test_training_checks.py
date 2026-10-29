@@ -1,9 +1,13 @@
 import hashlib
 import json
+from types import SimpleNamespace
 
 import pytest
 
-from tinyllm_eval.training_checks import check_fresh, check_sequence, checkpoint_schedule, load_prepared, source_groups
+from tinyllm_eval.training_checks import (
+    check_fresh, check_sequence, checkpoint_schedule, load_prepared, source_groups,
+    check_step_budget, apply_step_budget,
+)
 
 
 def fixture_files(tmp_path, change=None):
@@ -107,6 +111,33 @@ def test_step_checkpoint_schedule_keeps_evaluation_and_saving_aligned():
 def test_checkpoint_schedule_rejects_invalid_intervals(steps):
     with pytest.raises(ValueError, match="positive integer"):
         checkpoint_schedule(steps)
+
+
+@pytest.mark.parametrize("budget,interval", [(None, None), (None, 64), (512, 64), (64, 64)])
+def test_step_budget_accepts_aligned_boundaries(budget, interval):
+    check_step_budget(budget, interval)
+
+
+@pytest.mark.parametrize("budget,interval", [(0, 64), (-1, 64), (True, 1), (1.5, 1),
+                                               ("64", 64), (512, None), (512, 0), (513, 64)])
+def test_step_budget_rejects_invalid_or_unaligned_boundaries(budget, interval):
+    with pytest.raises(ValueError):
+        check_step_budget(budget, interval)
+
+
+@pytest.mark.parametrize("step", [64, 65])
+def test_step_budget_requests_final_evaluation_save_and_normal_stop(step):
+    control = SimpleNamespace(should_training_stop=False, should_evaluate=False, should_save=False)
+    assert apply_step_budget(control, step, 64) is control
+    assert control.should_training_stop and control.should_evaluate and control.should_save
+
+
+@pytest.mark.parametrize("prior_stop", [False, True])
+def test_step_budget_preserves_other_callbacks_before_boundary(prior_stop):
+    control = SimpleNamespace(should_training_stop=prior_stop, should_evaluate=True, should_save=False)
+    before = vars(control).copy()
+    apply_step_budget(control, 63, 64)
+    assert vars(control) == before
 
 
 def test_labels():

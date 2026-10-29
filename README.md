@@ -147,6 +147,18 @@ uv run --locked --group train python scripts/train_lora.py --adapter-dir adapter
 
 `train_lora.py` defaults to per-epoch validation loss and early stopping (patience 1). For earlier diagnostics, `--eval-steps N` evaluates and saves every N **optimizer steps**, with matched evaluation/save cadence for best-checkpoint restoration. `--patience` counts evaluation events, so increase it when evaluating more frequently to preserve the intended training-time horizon. Generation quality still requires separate evaluation; lower validation loss does not establish factuality. The script restores the best checkpoint, runs held-out base-vs-adapter generations and the limited fresh-base reload heuristic, and writes `train_meta.json` (data hashes/selected IDs, loss curves, applied LoRA targets, versions, generations). It now uses **all 1,000 validation rows by default**; an explicit `--val-limit` draws a seeded uniform sample from the entire file, not a sorted prefix. The stopped checkpoint-3000 run used the old default: 200/200 validation rows were `one_line`, so its loss **0.5058 is not mixed-task validation loss**. Do not compare that historical metric with the corrected validation split or silently resume using different validation data. Generated splits and adapters are untracked.
 
+For a bounded early-training experiment, add `--stop-after-steps N` with an
+`--eval-steps` interval that divides N. This stops through the normal trainer
+loop (including best-validation-loss restoration and reload checks), rather than
+interrupting the process. Unlike `max_steps`, it **does not shorten the original
+epoch-based LR schedule or warmup**. Earlier loss-based stopping still applies.
+Budgeted runs cannot resume and retain all checkpoints for separate quality
+inspection; ordinary runs retain two. The metadata records the requested budget,
+actual optimizer steps, scheduler horizon, warmup, optimizer, and best checkpoint.
+A completed budget experiment is not by itself evidence of useful adaptation or
+factuality preservation; quality-based candidate selection remains separate from
+best-validation-loss restoration.
+
 ### Adapter deployment path (unmerged; use a BF16 sidecar)
 
 Keep the Q4 base and adapter separate. **Use BF16, not F16, for this Granite adapter.** [IBM warns that Granite 4.0-1B exceeds F16's numerical range](https://huggingface.co/ibm-granite/granite-4.0-1b-GGUF#known-issues) and recommends BF16 for its full-precision model. Our captured CUDA operands confirm the same range problem in checkpoint-3000's **full attention+MLP adapter**: an MLP activation of 83,001 exceeds F16's maximum of 65,504, and the F16 LoRA matmul produces infinities. The BF16 sidecar produces finite logits and coherent summaries in controlled spot checks. Export with an explicit dtype:

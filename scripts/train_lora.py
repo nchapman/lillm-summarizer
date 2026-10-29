@@ -18,7 +18,10 @@ from pathlib import Path
 
 from tinyllm_eval.core import SYSTEM_PROMPT, PROMPT_VERSION
 from tinyllm_eval.training_data import load_chat_rows
-from tinyllm_eval.training_checks import check_fresh, load_prepared, check_sequence, source_groups, checkpoint_schedule
+from tinyllm_eval.training_checks import (
+    check_fresh, load_prepared, check_sequence, source_groups, checkpoint_schedule,
+    check_step_budget, apply_step_budget,
+)
 
 DEFAULT_MODEL = "ibm-granite/granite-4.0-1b"
 DEFAULT_TRAIN = Path("data/train/smoltalk2_stratified_train.jsonl")
@@ -38,6 +41,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--epochs", type=float, default=3.0)
     parser.add_argument("--patience", type=int, default=1, help="early-stopping patience in evaluation events (epochs by default)")
     parser.add_argument("--eval-steps", type=int, help="evaluate and save every N optimizer steps; default: every epoch")
+    parser.add_argument("--stop-after-steps", type=int,
+                        help="stop normally after N optimizer steps, retaining all checkpoints; "
+                             "preserves the epoch-based LR horizon; requires a multiple of --eval-steps")
     parser.add_argument("--learning-rate", type=float, default=2e-4)
     parser.add_argument("--batch-size", type=int, default=8)
     parser.add_argument("--grad-accum", type=int, default=1)
@@ -68,6 +74,9 @@ def main() -> None:
     if min(args.batch_size, eval_batch_size, args.grad_accum, args.max_length) <= 0:
         raise ValueError("batch sizes, accumulation and max length must be positive")
     schedule = checkpoint_schedule(args.eval_steps)
+    check_step_budget(args.stop_after_steps, args.eval_steps)
+    if args.stop_after_steps is not None and args.resume is not None:
+        raise ValueError("step-budget runs must start fresh, not resume")
     prepared_manifest_sha256 = None
     tokenizer_provenance = None
     if args.prepared_manifest:
@@ -93,7 +102,7 @@ def main() -> None:
     import torch
     from datasets import Dataset
     from huggingface_hub import HfApi
-    from transformers import AutoModelForCausalLM, AutoTokenizer, EarlyStoppingCallback
+    from transformers import AutoModelForCausalLM, AutoTokenizer, EarlyStoppingCallback, TrainerCallback
     import peft
     import transformers
     import trl
@@ -151,7 +160,7 @@ def main() -> None:
         report_to=[],
         seed=args.seed,
         **schedule,
-        save_total_limit=2,
+        save_total_limit=None if args.stop_after_steps is not None else 2,
         load_best_model_at_end=True,
         metric_for_best_model=best_metric,
         greater_is_better=False,
@@ -179,6 +188,12 @@ def main() -> None:
         for key, rows in eval_groups.items():
             audit(trainer.eval_dataset[key], rows)
     trainer.add_callback(EarlyStoppingCallback(early_stopping_patience=args.patience))
+    if args.stop_after_steps is not None:
+        class StepBudgetCallback(TrainerCallback):
+            def on_step_end(self, training_args, state, control, **kwargs):
+                return apply_step_budget(control, state.global_step, args.stop_after_steps)
+
+        trainer.add_callback(StepBudgetCallback())
     trainer.train(resume_from_checkpoint=str(args.resume) if args.resume else None)
 
     history = trainer.state.log_history
@@ -266,6 +281,14 @@ def main() -> None:
             "source_eval_losses": [{"epoch": e.get("epoch"), **{k: v for k, v in e.items()
                                       if k.startswith("eval_source_") and k.endswith("_loss")}}
                                    for e in history if any(k.startswith("eval_source_") and k.endswith("_loss") for k in e)],
+            "stop_after_steps": args.stop_after_steps,
+            "optimizer_steps_completed": trainer.state.global_step,
+            "scheduler_horizon_steps": trainer.state.max_steps,
+            "warmup_steps": trainer.args.get_warmup_steps(trainer.state.max_steps),
+            "save_total_limit": trainer.args.save_total_limit,
+            "best_model_checkpoint": trainer.state.best_model_checkpoint,
+            "optimizer": trainer.args.optim,
+            "weight_decay": trainer.args.weight_decay,
             "epochs_requested": args.epochs,
             "epochs_completed": history[-1].get("epoch") if history else None,
             "patience": args.patience,
