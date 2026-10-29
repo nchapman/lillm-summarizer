@@ -12,6 +12,8 @@ data/eval/*.jsonl
 data/train/*.jsonl
 # Private Folio-derived pools, length audits, and provenance sidecars
 data/train/folio*/
+# Atomic publication stages private derived files in hidden sibling directories.
+data/train/.folio*.staging-*/
 runs/
 models/
 adapters/
