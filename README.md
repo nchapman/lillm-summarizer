@@ -80,18 +80,18 @@ python scripts/train_lora.py --adapter-dir adapters/granite4-1b-24k-s42
 
 `train_lora.py` trains with per-epoch validation loss, early stopping (patience 1), best-checkpoint restoration, held-out base-vs-adapter generations, the limited fresh-base reload heuristic, and writes `train_meta.json` (data hashes/selected IDs, loss curves, applied LoRA targets, versions, generations). It now uses **all 1,000 validation rows by default**; an explicit `--val-limit` draws a seeded uniform sample from the entire file, not a sorted prefix. The stopped checkpoint-3000 run used the old default: 200/200 validation rows were `one_line`, so its loss **0.5058 is not mixed-task validation loss**. Do not compare that historical metric with the corrected validation split or silently resume using different validation data. Generated splits and adapters are untracked.
 
-### Adapter deployment path (unmerged; use an F32 sidecar on this CUDA build)
+### Adapter deployment path (unmerged; use a BF16 sidecar)
 
-Keep the Q4 base and adapter separate. For checkpoint-3000's **full attention+MLP adapter**, F16 GGUF sidecars degenerate on the pinned GB10/CUDA llama.cpp build; **F32 sidecars produce coherent summaries in controlled spot checks**. Export with an explicit dtype:
+Keep the Q4 base and adapter separate. **Use BF16, not F16, for this Granite adapter.** [IBM warns that Granite 4.0-1B exceeds F16's numerical range](https://huggingface.co/ibm-granite/granite-4.0-1b-GGUF#known-issues) and recommends BF16 for its full-precision model. Our captured CUDA operands confirm the same range problem in checkpoint-3000's **full attention+MLP adapter**: an MLP activation of 83,001 exceeds F16's maximum of 65,504, and the F16 LoRA matmul produces infinities. The BF16 sidecar produces finite logits and coherent summaries in controlled spot checks. Export with an explicit dtype:
 
 ```bash
 python /home/nchapman/Code/llama.cpp/convert_lora_to_gguf.py \
   adapters/granite4-1b-24k-s42/checkpoints/checkpoint-3000 \
   --base ~/.cache/huggingface/hub/models--ibm-granite--granite-4.0-1b/snapshots/6a7381ba1f54d684ff508d991aeb7dc580157103 \
-  --outtype f32 --outfile /tmp/granite24k_epoch1_lora-f32.gguf
+  --outtype bf16 --outfile /tmp/granite24k_epoch1_lora-bf16.gguf
 ```
 
-`--base` is the local **unquantized HF snapshot directory**, not a repo ID or GGUF. Serve using `llama-server -m models/granite4-1b/granite-4.0-1b-UD-Q4_K_XL.gguf --lora /tmp/granite24k_epoch1_lora-f32.gguf -ngl all -c 8192 --parallel 1`. This applies LoRA on activations without merging or discarding MLP targets. The F32 sidecar is ~81 MB; the base remains quantized. The [audit](docs/granite-training-audit.md) records the CPU/CUDA and dtype controls, including numerically identical F16-rounded coefficients recovering when stored as F32. Do not describe this as a gate/up conversion bug or assume training gains transfer unchanged to Q4. The earlier F16 pilot outputs are invalid for quality comparison.
+`--base` is the local **unquantized HF snapshot directory**, not a repo ID or GGUF. Serve using `llama-server -m models/granite4-1b/granite-4.0-1b-UD-Q4_K_XL.gguf --lora /tmp/granite24k_epoch1_lora-bf16.gguf -ngl all -c 8192 --parallel 1`. This applies LoRA on activations without merging or discarding MLP targets. The BF16 sidecar is ~41 MB; the base remains quantized. BF16 retains a wide exponent range in 16-bit storage; F32 export is not required for the verified path. The [audit](docs/granite-training-audit.md) records the model-specific guidance, captured-operand/reference comparison, and CPU/CUDA dtype controls. Two real held-out BF16-sidecar checks were coherent with exact HF/llama.cpp prompt-token matches; a fresh HTTP-server check also completed normally. These are correctness spot checks, **not a quality evaluation or authorization to resume training**. The earlier F16 pilot outputs remain invalid for quality comparison.
 
 The server advertises hot-swapping (`--lora-init-without-apply`, POST `/lora-adapters`) and multiple/scaled adapters. That API has **not been exercised here**; startup adapter loading and hot-swapping are separate verification steps.
 
