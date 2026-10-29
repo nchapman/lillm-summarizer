@@ -4,7 +4,7 @@
 
 The full native adapter produces coherent summaries. Its **F16 GGUF sidecar overflows on this GB10/CUDA build**: a captured MLP activation exceeds F16's maximum, and the down-projection LoRA A matmul introduces infinities that propagate to all logits. **Use a BF16 sidecar with the same Q4 base.** BF16 preserves the required exponent range in 16-bit storage; controlled spot checks and a fresh HTTP-server check work without merging, target removal, retraining, or external source changes. The earlier F32 recovery was a diagnostic, not the required deployment format. This is evidence about inference correctness, **not evidence of improved summarization quality**.
 
-The audit also found mistakes in our training harness and earlier claims: biased validation selection, an ignored revision pin, incorrect import order, and an overstated reload check. The stopped checkpoint is preserved; no training was resumed and no new evaluation battery or hosted judging was run.
+The audit also found mistakes in our training harness and earlier claims: biased validation selection, an ignored revision pin, incorrect import order, and an overstated reload check. The stopped checkpoint is preserved; no training was resumed and no evaluation battery or hosted judging was run during the diagnosis. The subsequently authorized [epoch-1 end-to-end battery](../GRANITE_ADAPTER_RESULTS.md) is now complete, providing the quality reference for later checkpoints; it is not a final verdict on unfinished training.
 
 ## Artifacts and scope
 
@@ -130,11 +130,11 @@ Fixed in this repository:
 
 Verification: six new row-selection tests, including a regression confirmed to fail on prefix selection; full suite **42 passed**; Python compilation and `git diff --check`; corrected model-load-only check; actual training-mask inspection; native/sidecar and HTTP-server spot checks. No new training run was performed, so these changes do not constitute a post-fix training benchmark or end-to-end resume verification. Code review found no blocking issues in this change; its two nonblocking suggestions concern pre-existing leakage-threshold boundary handling and optional-data-extra test skips, which are left outside this audit's focused fixes.
 
-BF16 follow-up verification: same-prompt CUDA completion; the 93-token captured-operand probe with finite BF16 logits; two held-out generations with full prompt-token equality; a fresh BF16 HTTP-server request (93 prompt tokens, 46 completion tokens, normal stop); `git diff --check`; full suite **42 passed**. The server is stopped and training/evaluation batteries remain paused. Documentation review found no blocking issues; the repeated leakage-threshold suggestion is pre-existing and outside this change.
+BF16 follow-up verification: same-prompt CUDA completion; the 93-token captured-operand probe with finite BF16 logits; two held-out generations with full prompt-token equality; a fresh BF16 HTTP-server request (93 prompt tokens, 46 completion tokens, normal stop); `git diff --check`; full suite **42 passed**. At the end of diagnosis, the server was stopped and training/evaluation batteries remained paused. The later authorized battery is documented separately above; training remains stopped. Documentation review found no blocking issues; the repeated leakage-threshold suggestion is pre-existing and outside this change.
 
 Still open:
 
-- No valid quality comparison from the failed F16 pilot/partial confirmation runs. Do not judge or score those outputs as adapter performance.
+- The failed F16 pilot/partial confirmation runs remain invalid for quality comparison. Use the later complete BF16 battery, not those outputs, as the epoch-1 deployment reference.
 - No proof yet of improved summarization, good length control, hot-swap behavior, or portability of the dtype finding beyond this build/hardware.
 - The reproduced F16 failure is diagnosed by a captured-operand/reference comparison. BF16 fixes the verified separate-adapter path; no external source patch was needed. Other prompts/builds may exercise different kernels and remain outside these spot checks.
 - Before further training decisions, establish representative validation under the corrected selection and explicitly handle historical best-loss/callback state rather than mixing incomparable losses.

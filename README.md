@@ -95,6 +95,10 @@ python /home/nchapman/Code/llama.cpp/convert_lora_to_gguf.py \
 
 The server advertises hot-swapping (`--lora-init-without-apply`, POST `/lora-adapters`) and multiple/scaled adapters. That API has **not been exercised here**; startup adapter loading and hot-swapping are separate verification steps.
 
+### Epoch-1 end-to-end evaluation
+
+The [epoch-1 BF16-sidecar report](GRANITE_ADAPTER_RESULTS.md) records a complete fresh base-versus-adapter battery under `summary-v2`: 50 pilot + 250 confirmation examples per candidate, ROUGE, and 600 final source-grounded judgments. This was a successful **end-to-end pipeline checkpoint before training was finished**, not a final training verdict. At epoch 1, the adapter improved observed judge coverage but produced longer summaries, more cap hits, and lower factuality/concision/overall scores than the base. Preserve these as the reference for later checkpoints. Latency is excluded because of an overlapping GPU workload. Training was not resumed by the evaluation.
+
 ## Run one model through llama.cpp
 
 The repo's llama.cpp checkout has a CUDA build at `/home/nchapman/Code/llama.cpp/build-cuda/bin/llama-server` (commit `0878f7c`, build `0.7.0-dev`). It is external to this repo and is not modified by this harness. Hub checks found `UD-Q4_K_XL` files for Qwen3.5, LFM2.5, and Granite; MiniCPM5 uses the official `Q4_K_M` GGUF:
