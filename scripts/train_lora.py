@@ -52,6 +52,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--limit", type=int, help="cap training rows (smoke only)")
     parser.add_argument("--val-limit", type=int, default=200, help="validation rows used for eval loss")
     parser.add_argument("--sample-count", type=int, default=3, help="held-out generations shown")
+    parser.add_argument("--resume", type=Path, help="checkpoint directory to resume from")
     parser.add_argument("--seed", type=int, default=42)
     return parser.parse_args()
 
@@ -146,7 +147,7 @@ def main() -> None:
         args=config,
     )
     trainer.add_callback(EarlyStoppingCallback(early_stopping_patience=args.patience))
-    trainer.train()
+    trainer.train(resume_from_checkpoint=str(args.resume) if args.resume else None)
 
     history = trainer.state.log_history
     train_losses = [(e["step"], e["loss"]) for e in history if "loss" in e]
