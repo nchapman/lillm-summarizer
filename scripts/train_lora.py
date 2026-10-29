@@ -16,23 +16,9 @@ import random
 import sys
 from pathlib import Path
 
-# Unsloth must patch Transformers/TRL/PEFT before they are imported.
-import unsloth
-from unsloth import FastLanguageModel
-
-import torch
-from datasets import Dataset
-from huggingface_hub import HfApi
-from transformers import AutoModelForCausalLM, AutoTokenizer, EarlyStoppingCallback
-
-import peft
-import transformers
-import trl
-from trl import SFTConfig, SFTTrainer
+from tinyllm_eval.core import SYSTEM_PROMPT, PROMPT_VERSION
 from tinyllm_eval.training_data import load_chat_rows
-
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-from train_smoke import generate, next_token_agreement, resolve_target_modules  # noqa: E402
+from tinyllm_eval.training_checks import check_fresh, load_prepared, check_sequence, source_groups
 
 DEFAULT_MODEL = "ibm-granite/granite-4.0-1b"
 DEFAULT_TRAIN = Path("data/train/smoltalk2_stratified_train.jsonl")
@@ -42,6 +28,8 @@ LORA_TARGETS = ["q_proj", "k_proj", "v_proj", "o_proj", "input_linear", "output_
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--prepared-manifest", type=Path)
+    parser.add_argument("--per-device-eval-batch-size", type=int)
     parser.add_argument("--model", default=DEFAULT_MODEL)
     parser.add_argument("--model-revision", default=None)
     parser.add_argument("--train", type=Path, default=DEFAULT_TRAIN)
@@ -52,6 +40,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--learning-rate", type=float, default=2e-4)
     parser.add_argument("--batch-size", type=int, default=8)
     parser.add_argument("--grad-accum", type=int, default=1)
+    parser.add_argument("--gradient-checkpointing", choices=("unsloth", "standard", "off"), default="unsloth",
+                        help="memory/compute tradeoff; benchmark on the target GPU before disabling")
     parser.add_argument("--max-length", type=int, default=3072)
     parser.add_argument("--limit", type=int, help="cap training rows (smoke only)")
     parser.add_argument("--val-limit", type=int, help="optional seeded validation sample; default uses the entire split")
@@ -73,13 +63,47 @@ def sha256_file(path: Path) -> str:
 
 def main() -> None:
     args = parse_args()
+    eval_batch_size = args.per_device_eval_batch_size if args.per_device_eval_batch_size is not None else args.batch_size
+    if min(args.batch_size, eval_batch_size, args.grad_accum, args.max_length) <= 0:
+        raise ValueError("batch sizes, accumulation and max length must be positive")
+    prepared_manifest_sha256 = None
+    tokenizer_provenance = None
+    if args.prepared_manifest:
+        check_fresh(args.adapter_dir, args.resume)
+        train_rows, val_rows = load_prepared(args.prepared_manifest, args.train, args.val,
+                                           args.max_length, SYSTEM_PROMPT, PROMPT_VERSION)
+        prepared_manifest_sha256 = sha256_file(args.prepared_manifest)
+        tokenizer_provenance = json.loads(args.prepared_manifest.read_text()).get("tokenizer_provenance")
+        for limit in (args.limit, args.val_limit):
+            if limit is not None and limit <= 0:
+                raise ValueError("row limits must be positive")
+        if args.limit and args.limit < len(train_rows):
+            train_rows = random.Random(args.seed).sample(train_rows, args.limit)
+        if args.val_limit and args.val_limit < len(val_rows):
+            val_rows = random.Random(args.seed).sample(val_rows, args.val_limit)
+    else:
+        train_rows = load_chat_rows(args.train, args.limit, seed=args.seed)
+        val_rows = load_chat_rows(args.val, args.val_limit, seed=args.seed)
+
+    # Import GPU libraries only after prepared-data preflight succeeds.
+    import unsloth
+    from unsloth import FastLanguageModel
+    import torch
+    from datasets import Dataset
+    from huggingface_hub import HfApi
+    from transformers import AutoModelForCausalLM, AutoTokenizer, EarlyStoppingCallback
+    import peft
+    import transformers
+    import trl
+    from trl import SFTConfig, SFTTrainer
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from train_smoke import generate, next_token_agreement, resolve_target_modules
+
     revision = args.model_revision or HfApi().model_info(args.model).sha
     print(f"model: {args.model}@{revision}")
     print(f"unsloth {unsloth.__version__} | trl {trl.__version__} | peft {peft.__version__} | "
           f"transformers {transformers.__version__} | torch {torch.__version__}")
 
-    train_rows = load_chat_rows(args.train, args.limit, seed=args.seed)
-    val_rows = load_chat_rows(args.val, args.val_limit, seed=args.seed)
     print(f"rows: {len(train_rows)} train, {len(val_rows)} validation")
 
     model, tokenizer = FastLanguageModel.from_pretrained(
@@ -96,17 +120,23 @@ def main() -> None:
         lora_alpha=16,
         lora_dropout=0.0,
         target_modules=resolve_target_modules(model) or LORA_TARGETS,
-        use_gradient_checkpointing="unsloth",
+        use_gradient_checkpointing={"unsloth": "unsloth", "standard": True, "off": False}[args.gradient_checkpointing],
         random_state=args.seed,
     )
 
     def to_dataset(rows: list[dict]) -> Dataset:
         return Dataset.from_list([{k: row[k] for k in ("prompt", "completion")} for row in rows])
 
+    eval_groups, source_mapping = source_groups(val_rows) if args.prepared_manifest else ({}, {})
+    best_metric = "eval_all_loss" if args.prepared_manifest else "eval_loss"
     config = SFTConfig(
         output_dir=str(args.adapter_dir / "checkpoints"),
         per_device_train_batch_size=args.batch_size,
+        per_device_eval_batch_size=eval_batch_size,
+        packing=False,
+        padding_free=False,
         gradient_accumulation_steps=args.grad_accum,
+        gradient_checkpointing=args.gradient_checkpointing != "off",
         num_train_epochs=args.epochs,
         learning_rate=args.learning_rate,
         warmup_ratio=0.1,
@@ -122,7 +152,7 @@ def main() -> None:
         save_strategy="epoch",
         save_total_limit=2,
         load_best_model_at_end=True,
-        metric_for_best_model="eval_loss",
+        metric_for_best_model=best_metric,
         greater_is_better=False,
         restore_callback_states_from_checkpoint=True,
     )
@@ -130,21 +160,38 @@ def main() -> None:
         model=model,
         tokenizer=tokenizer,
         train_dataset=to_dataset(train_rows),
-        eval_dataset=to_dataset(val_rows),
+        eval_dataset={key: to_dataset(rows) for key, rows in eval_groups.items()} if args.prepared_manifest else to_dataset(val_rows),
         args=config,
     )
+    if args.prepared_manifest:
+        def audit(dataset, rows):
+            if len(dataset) != len(rows):
+                raise ValueError("prepared dataset row count mismatch")
+            for prepared, original in zip(dataset, rows):
+                if len(prepared["input_ids"]) != original["token_count"]:
+                    raise ValueError("prepared sequence length mismatch")
+                batch = trainer.data_collator([prepared])
+                ids = batch["input_ids"].reshape(-1).tolist()
+                labels = batch["labels"].reshape(-1).tolist()
+                check_sequence(ids, labels, original["token_count"], tokenizer.eos_token_id)
+        audit(trainer.train_dataset, train_rows)
+        for key, rows in eval_groups.items():
+            audit(trainer.eval_dataset[key], rows)
     trainer.add_callback(EarlyStoppingCallback(early_stopping_patience=args.patience))
     trainer.train(resume_from_checkpoint=str(args.resume) if args.resume else None)
 
     history = trainer.state.log_history
     train_losses = [(e["step"], e["loss"]) for e in history if "loss" in e]
-    eval_losses = [(e["epoch"], e["eval_loss"]) for e in history if "eval_loss" in e]
+    eval_losses = [(e["epoch"], e[best_metric]) for e in history if best_metric in e]
     best_epoch, best_loss = min(eval_losses, key=lambda item: item[1]) if eval_losses else (None, None)
-    print(f"train loss: {train_losses[0][1]:.4f} (step {train_losses[0][0]}) -> {train_losses[-1][1]:.4f} (step {train_losses[-1][0]})")
+    if train_losses:
+        print(f"train loss: {train_losses[0][1]:.4f} (step {train_losses[0][0]}) -> {train_losses[-1][1]:.4f} (step {train_losses[-1][0]})")
     for epoch, loss in eval_losses:
         print(f"eval loss @ epoch {epoch:.2f}: {loss:.4f}")
-    print(f"best eval loss: {best_loss:.4f} at epoch {best_epoch:.2f} (restored)")
+    if best_loss is not None:
+        print(f"best eval loss: {best_loss:.4f} at epoch {best_epoch:.2f} (restored)")
 
+    gradient_checkpointing_active = model.is_gradient_checkpointing
     FastLanguageModel.for_inference(model)
     samples = []
     print("\n=== validation generations (base vs adapter) ===")
@@ -154,7 +201,8 @@ def main() -> None:
         with model.disable_adapter():
             base_output = generate(model, tokenizer, row["prompt"])
         samples.append({"id": row["id"], "base": base_output, "adapter": adapter_output})
-        print(f"\n[{row['id']}]\n  base:    {base_output[:400]}\n  adapter: {adapter_output[:400]}")
+        if not args.prepared_manifest:
+            print(f"\n[{row['id']}]\n  base:    {base_output[:400]}\n  adapter: {adapter_output[:400]}")
 
     args.adapter_dir.mkdir(parents=True, exist_ok=True)
     model.save_pretrained(str(args.adapter_dir))
@@ -183,6 +231,8 @@ def main() -> None:
         "model": args.model,
         "model_revision": revision,
         "data": {
+            "prepared_manifest_sha256": prepared_manifest_sha256,
+            "tokenizer_provenance": tokenizer_provenance,
             "train": str(args.train),
             "train_sha256": sha256_file(args.train),
             "train_rows": len(train_rows),
@@ -200,16 +250,29 @@ def main() -> None:
             "applied_target_modules": applied_targets,
         },
         "training": {
+            "prompt_version": PROMPT_VERSION if args.prepared_manifest else None,
+            "packing": trainer.args.packing,
+            "padding_free": getattr(trainer.data_collator, "padding_free", trainer.args.padding_free),
+            "per_device_eval_batch_size": trainer.args.per_device_eval_batch_size,
+            "eval_strategy": trainer.args.eval_strategy,
+            "metric_for_best_model": best_metric,
+            "source_metric_mapping": source_mapping,
+            "source_eval_losses": [{"epoch": e.get("epoch"), **{k: v for k, v in e.items()
+                                      if k.startswith("eval_source_") and k.endswith("_loss")}}
+                                   for e in history if any(k.startswith("eval_source_") and k.endswith("_loss") for k in e)],
             "epochs_requested": args.epochs,
             "epochs_completed": history[-1].get("epoch") if history else None,
             "patience": args.patience,
             "per_device_train_batch_size": args.batch_size,
             "gradient_accumulation_steps": args.grad_accum,
+            "gradient_checkpointing_requested": args.gradient_checkpointing,
+            "gradient_checkpointing_configured": trainer.args.gradient_checkpointing,
+            "gradient_checkpointing_active": gradient_checkpointing_active,
             "learning_rate": args.learning_rate,
             "max_length": args.max_length,
             "seed": args.seed,
-            "train_loss_first": train_losses[0][1],
-            "train_loss_last": train_losses[-1][1],
+            "train_loss_first": train_losses[0][1] if train_losses else None,
+            "train_loss_last": train_losses[-1][1] if train_losses else None,
             "eval_losses": [{"epoch": epoch, "loss": loss} for epoch, loss in eval_losses],
             "best_eval_loss": best_loss,
             "best_eval_epoch": best_epoch,

@@ -15,6 +15,7 @@ import json
 import math
 import os
 import random
+import re
 import shutil
 import tempfile
 from collections import Counter, defaultdict
@@ -179,6 +180,7 @@ def prepare_combined(
     *,
     eval_inputs: Sequence[Path],
     tokenizer_provenance: dict[str, Any],
+    review_exclusions: Mapping[str, Mapping[str, str]] | None = None,
 ) -> dict[str, Any]:
     """Validate, filter, deduplicate, stratify and atomically publish prepared chats.
 
@@ -192,6 +194,9 @@ def prepare_combined(
     fields. ``eval_inputs`` and ``tokenizer_provenance`` are explicit so callers
     must consciously identify the frozen evaluation files and tokenizer. Tokenizer
     provenance is caller-attested metadata, not independently verified here.
+    ``review_exclusions`` is an optional source -> document ID -> reason-code map
+    from a separate quality review. Every requested ID must exist in its source;
+    no automatic semantic or length-based target-quality exclusion is inferred.
 
     ``val_count`` may be zero, but must leave one train row in every populated
     source/token-band stratum. Output publication currently requires Linux's
@@ -205,6 +210,25 @@ def prepare_combined(
         raise ValueError("val_count must be a non-negative integer")
     if not isinstance(tokenizer_provenance, dict):
         raise ValueError("tokenizer_provenance must be a dict")
+    if review_exclusions is None:
+        review_exclusions = {}
+    if not isinstance(review_exclusions, Mapping):
+        raise ValueError("review_exclusions must be a mapping")
+    reviewed: dict[str, dict[str, str]] = {}
+    for source, entries in review_exclusions.items():
+        if source not in inputs:
+            raise ValueError("review_exclusions contains an unknown source")
+        if not isinstance(entries, Mapping):
+            raise ValueError("review_exclusions source entries must be mappings")
+        reviewed[source] = {}
+        for identifier, reason in entries.items():
+            if not isinstance(identifier, str) or re.fullmatch(r"[0-9a-f]{16}", identifier) is None:
+                raise ValueError("review exclusion ID must be a 16-character document digest")
+            if not isinstance(reason, str) or re.fullmatch(r"[a-z][a-z0-9_]{0,63}", reason) is None:
+                raise ValueError("review exclusion reason code must be lowercase snake_case, at most 64 characters")
+            reviewed[source][identifier] = reason
+    requested_reviews = {(source, identifier) for source, entries in reviewed.items() for identifier in entries}
+    matched_reviews: set[tuple[str, str]] = set()
     output_dir = Path(output_dir).absolute()
     if os.path.lexists(output_dir):
         raise FileExistsError(f"output directory already exists: {output_dir}")
@@ -292,6 +316,9 @@ def prepare_combined(
                     except json.JSONDecodeError:
                         raise ValueError(f"source {source!r}, input line {line_number}: invalid JSON") from None
                     document, target = _validate_row(row, source, line_number)
+                    reviewed_reason = reviewed.get(source, {}).get(row["id"])
+                    if reviewed_reason is not None:
+                        matched_reviews.add((source, row["id"]))
                     previous_prompt = row["messages"][0]["content"]
                     row = {
                         **row,
@@ -307,6 +334,9 @@ def prepare_combined(
                         exclude(row, source, line_number, "duplicate_document")
                         continue
                     seen[doc_hash] = target_hash
+                    if reviewed_reason is not None:
+                        exclude(row, source, line_number, reviewed_reason)
+                        continue
                     reason = _quarantine_reason(document, target, special_tokens)
                     if reason:
                         exclude(row, source, line_number, reason)
@@ -320,6 +350,8 @@ def prepare_combined(
                     if len(pending) >= BATCH_SIZE:
                         flush()
             input_reports[source]["rows"] = source_counts[source]["input"]
+        if requested_reviews != matched_reviews:
+            raise ValueError("review exclusion IDs were not found in their named source inputs")
         flush()
         exclusions_stream.flush()
         os.fsync(exclusions_stream.fileno())
@@ -341,6 +373,10 @@ def prepare_combined(
             "system_prompt": SYSTEM_PROMPT,
             "target_policy": "preserve targets regardless of length, paragraphs or punctuation; flag missing terminal punctuation for review",
             "retained_warnings": dict(sorted(retained_warnings.items())),
+            "review_exclusions": {
+                "requested": len(requested_reviews), "matched": len(matched_reviews),
+                "sha256": _digest(json.dumps(reviewed, sort_keys=True, separators=(",", ":"))),
+            },
             "deduplication": {"normalization": "whitespace-collapse then casefold", "keep": "first input row"},
             "evaluation": {
                 "inputs": eval_reports, "documents": eval_document_count, "unique_ngrams": len(eval_grams),

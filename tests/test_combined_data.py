@@ -108,6 +108,32 @@ class CombinedDataTests(unittest.TestCase):
         self.assertEqual(output["messages"][1:], original["messages"][1:])
         self.assertEqual(tokenizer.calls[0][0][0]["content"], SYSTEM_PROMPT)
 
+    def test_applies_explicit_review_quarantine_without_rewriting_other_targets(self):
+        suspect = row("A source with an unfinished teacher generation.", "This target was cut mid")
+        valid = row("A substantial source.", "Complete long summary.\n\nAnother paragraph.")
+        path = self.write_rows("reviewed.jsonl", [suspect, valid])
+        metadata = self.prepare({"a": path}, review_exclusions={"a": {suspect["id"]: "suspected_teacher_cutoff"}})
+        self.assertEqual(metadata["counts"]["by_reason"], {"suspected_teacher_cutoff": 1})
+        output = self.read_rows(self.root / "out/train.jsonl")
+        self.assertEqual([r["messages"] for r in output], [valid["messages"]])
+        self.assertEqual(metadata["review_exclusions"]["requested"], 1)
+        self.assertEqual(metadata["review_exclusions"]["matched"], 1)
+
+    def test_rejects_review_exclusion_for_unknown_source_or_missing_id(self):
+        path = self.write_rows("a.jsonl", [row("A clean source.")])
+        with self.assertRaisesRegex(ValueError, "unknown source"):
+            self.prepare({"a": path}, review_exclusions={"unknown": {"0" * 16: "reviewed_cutoff"}})
+        with self.assertRaisesRegex(ValueError, "not found"):
+            self.prepare({"a": path}, review_exclusions={"a": {"0" * 16: "reviewed_cutoff"}})
+        self.assert_no_staging()
+        self.assertFalse((self.root / "out").exists())
+
+    def test_rejects_review_exclusion_reason_that_could_leak_text_into_reports(self):
+        path = self.write_rows("a.jsonl", [row("A clean source.")])
+        with self.assertRaisesRegex(ValueError, "reason code"):
+            self.prepare({"a": path}, review_exclusions={"a": {"0" * 16: "Private article text!"}})
+        self.assert_no_staging()
+
     def test_keeps_long_multiparagraph_and_unpunctuated_targets_with_review_warning(self):
         long_target = "A detailed summary sentence. " * 200 + "\n\nA concluding paragraph."
         rows = [row("Long article.", long_target), row("A short page.", "A short heading")]
