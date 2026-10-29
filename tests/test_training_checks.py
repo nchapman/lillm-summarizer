@@ -3,7 +3,7 @@ import json
 
 import pytest
 
-from tinyllm_eval.training_checks import check_fresh, check_sequence, load_prepared, source_groups
+from tinyllm_eval.training_checks import check_fresh, check_sequence, checkpoint_schedule, load_prepared, source_groups
 
 
 def fixture_files(tmp_path, change=None):
@@ -91,6 +91,22 @@ def test_fresh(tmp_path):
     assert checkpoint.read_text() == "preserve"
     with pytest.raises(ValueError):
         check_fresh(tmp_path / "new", checkpoint)
+
+
+def test_epoch_checkpoint_schedule_is_default():
+    assert checkpoint_schedule(None) == {"eval_strategy": "epoch", "save_strategy": "epoch"}
+
+
+def test_step_checkpoint_schedule_keeps_evaluation_and_saving_aligned():
+    assert checkpoint_schedule(100) == {
+        "eval_strategy": "steps", "save_strategy": "steps", "eval_steps": 100, "save_steps": 100,
+    }
+
+
+@pytest.mark.parametrize("steps", [0, -1, True, 0.5, "100"])
+def test_checkpoint_schedule_rejects_invalid_intervals(steps):
+    with pytest.raises(ValueError, match="positive integer"):
+        checkpoint_schedule(steps)
 
 
 def test_labels():

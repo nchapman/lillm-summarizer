@@ -6,6 +6,16 @@ import json
 from pathlib import Path
 
 
+def checkpoint_schedule(eval_steps: int | None) -> dict:
+    """Keep evaluation and saves aligned for best-checkpoint restoration."""
+    if eval_steps is None:
+        return {"eval_strategy": "epoch", "save_strategy": "epoch"}
+    if type(eval_steps) is not int or eval_steps <= 0:
+        raise ValueError("eval steps must be a positive integer")
+    return {"eval_strategy": "steps", "save_strategy": "steps",
+            "eval_steps": eval_steps, "save_steps": eval_steps}
+
+
 def check_fresh(adapter_dir: Path, resume: Path | None) -> None:
     if resume is not None:
         raise ValueError("prepared runs cannot resume")

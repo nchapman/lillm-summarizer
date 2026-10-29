@@ -1,6 +1,6 @@
 """Full LoRA training run on the stratified summarization subset.
 
-Trains with per-epoch validation loss, early stopping, and best-checkpoint
+Trains with epoch- or step-based validation loss, early stopping, and best-checkpoint
 restoration; saves the native adapter plus a metadata record; and repeats the
 smoke-test artifact checks (held-out generations and a fresh-base reload).
 
@@ -18,7 +18,7 @@ from pathlib import Path
 
 from tinyllm_eval.core import SYSTEM_PROMPT, PROMPT_VERSION
 from tinyllm_eval.training_data import load_chat_rows
-from tinyllm_eval.training_checks import check_fresh, load_prepared, check_sequence, source_groups
+from tinyllm_eval.training_checks import check_fresh, load_prepared, check_sequence, source_groups, checkpoint_schedule
 
 DEFAULT_MODEL = "ibm-granite/granite-4.0-1b"
 DEFAULT_TRAIN = Path("data/train/smoltalk2_stratified_train.jsonl")
@@ -36,7 +36,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--val", type=Path, default=DEFAULT_VAL)
     parser.add_argument("--adapter-dir", type=Path, required=True)
     parser.add_argument("--epochs", type=float, default=3.0)
-    parser.add_argument("--patience", type=int, default=1, help="early-stopping patience in epochs")
+    parser.add_argument("--patience", type=int, default=1, help="early-stopping patience in evaluation events (epochs by default)")
+    parser.add_argument("--eval-steps", type=int, help="evaluate and save every N optimizer steps; default: every epoch")
     parser.add_argument("--learning-rate", type=float, default=2e-4)
     parser.add_argument("--batch-size", type=int, default=8)
     parser.add_argument("--grad-accum", type=int, default=1)
@@ -66,6 +67,7 @@ def main() -> None:
     eval_batch_size = args.per_device_eval_batch_size if args.per_device_eval_batch_size is not None else args.batch_size
     if min(args.batch_size, eval_batch_size, args.grad_accum, args.max_length) <= 0:
         raise ValueError("batch sizes, accumulation and max length must be positive")
+    schedule = checkpoint_schedule(args.eval_steps)
     prepared_manifest_sha256 = None
     tokenizer_provenance = None
     if args.prepared_manifest:
@@ -148,8 +150,7 @@ def main() -> None:
         group_by_length=True,
         report_to=[],
         seed=args.seed,
-        eval_strategy="epoch",
-        save_strategy="epoch",
+        **schedule,
         save_total_limit=2,
         load_best_model_at_end=True,
         metric_for_best_model=best_metric,
@@ -255,6 +256,11 @@ def main() -> None:
             "padding_free": getattr(trainer.data_collator, "padding_free", trainer.args.padding_free),
             "per_device_eval_batch_size": trainer.args.per_device_eval_batch_size,
             "eval_strategy": trainer.args.eval_strategy,
+            "save_strategy": trainer.args.save_strategy,
+            "eval_steps": trainer.args.eval_steps,
+            "save_steps": trainer.args.save_steps,
+            "eval_steps_requested": args.eval_steps,
+            "patience_unit": "evaluation_events",
             "metric_for_best_model": best_metric,
             "source_metric_mapping": source_mapping,
             "source_eval_losses": [{"epoch": e.get("epoch"), **{k: v for k, v in e.items()
