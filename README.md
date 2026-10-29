@@ -55,6 +55,18 @@ tinyllm-eval prepare-smoltalk
 
 The command pins and records the Hub revision, streams the split, drops exact duplicate documents and any row whose 8-gram containment against both frozen evaluation files reaches 0.2, prepends the fixed summary-v2 system prompt, and writes `data/train/smoltalk2_smol-summarize_no_think.jsonl` plus a `.meta.json` report (only the meta report is tracked). Current output: 92,704 rows kept (59,855 `three_sentence`, 32,849 `one_line`), 3,333 duplicates and 24 leakage near-duplicates dropped (max kept score 0.198). Target shape: `one_line` targets are one sentence (p50 18 words); `three_sentence` targets are p50 62 words but only half are 2–3 sentences — 16% run 4–6 sentences and 33% are 7+ (p75 163 words), i.e. the teacher frequently exceeded its "up to three sentences" instruction on long articles, so treat that tag as instruction provenance rather than a length guarantee. Rows keep `document_words`/`target_words`/`tag`/`leakage_score` fields for later mix or length ablations. As with the evaluation files, preserve the generated JSONL for exact reuse; regenerate only with `--overwrite` and an intentional revision change.
 
+## LoRA training smoke test (phase 3)
+
+`scripts/train_smoke.py` proves the Granite 4.0-1B training path end to end on a small slice of the prepared data:
+
+```bash
+python scripts/train_smoke.py --adapter-dir adapters/granite4-1b-smoke
+```
+
+It loads `ibm-granite/granite-4.0-1b` (revision pinned and recorded), attaches a LoRA adapter (r=16, all attention + MLP projections), trains two epochs on 197 rows with completion-only loss under the summary-v2 prompt, generates held-out examples before and after training, saves the native adapter, and reloads it on a fresh base model via plain transformers + PEFT. Verified on the GB10 host: loss decreased 1.20 → 0.45 over 50 steps (~53 s), held-out generations remained valid summarizations, and the reloaded adapter reproduced the trained model's predictions (96.9% teacher-forced next-token agreement; exact generation equality is not expected across inference paths because on-the-fly vs merged bf16 LoRA arithmetic diverges numerically). Adapter artifacts and unsloth's compile cache are untracked.
+
+Pinned stack (also recorded in `adapters/*/smoke_meta.json`): unsloth 2026.10.10, trl 1.15.0, peft 0.19.1, transformers 4.57.6, torch 2.12.1+cu130. Unsloth installed cleanly on ARM64/CUDA 13 without touching the working torch build. Extend the same script to the other finalists before building the full training pipeline; per PLAN.md, the full comparison re-runs base models under summary-v2 first.
+
 ## Run one model through llama.cpp
 
 The repo's llama.cpp checkout has a CUDA build at `/home/nchapman/Code/llama.cpp/build-cuda/bin/llama-server` (commit `0878f7c`, build `0.7.0-dev`). It is external to this repo and is not modified by this harness. Hub checks found `UD-Q4_K_XL` files for Qwen3.5, LFM2.5, and Granite; MiniCPM5 uses the official `Q4_K_M` GGUF:

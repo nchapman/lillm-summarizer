@@ -12,3 +12,5 @@ data/eval/*.jsonl
 data/train/*.jsonl
 runs/
 models/
+adapters/
+unsloth_compiled_cache/
