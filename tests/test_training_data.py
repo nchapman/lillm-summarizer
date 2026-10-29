@@ -21,8 +21,10 @@ from tinyllm_eval.training_data import (
     containment,
     count_sentences,
     extract_pair,
+    length_band,
     original_instruction,
     prepare_rows,
+    stratified_subset,
     word_ngrams,
 )
 
@@ -97,6 +99,65 @@ class NgramTests(unittest.TestCase):
     def test_count_sentences_is_rough_but_useful(self):
         self.assertEqual(count_sentences("One. Two sentences here! And three?"), 3)
         self.assertEqual(count_sentences(""), 0)
+
+
+class StratifiedSubsetTests(unittest.TestCase):
+    @staticmethod
+    def _rows(count: int, tag: str, band: str) -> list[dict]:
+        words = {"short": 50, "medium": 300, "long": 800}[band]
+        return [
+            {
+                "id": f"{tag}-{band}-{index}",
+                "messages": [],
+                "tag": tag,
+                "document_words": words,
+            }
+            for index in range(count)
+        ]
+
+    def test_split_is_stratified_disjoint_and_deterministic(self):
+        rows = (
+            self._rows(600, "three_sentence", "medium")
+            + self._rows(300, "three_sentence", "long")
+            + self._rows(100, "three_sentence", "short")
+            + self._rows(400, "one_line", "medium")
+            + self._rows(100, "one_line", "short")
+        )
+        train_a, val_a, report = stratified_subset(rows, train_count=250, val_count=50, seed=7)
+        train_b, val_b, _ = stratified_subset(rows, train_count=250, val_count=50, seed=7)
+
+        self.assertEqual([row["id"] for row in train_a], [row["id"] for row in train_b])
+        self.assertEqual(len(train_a), 250)
+        self.assertEqual(len(val_a), 50)
+        train_ids = {row["id"] for row in train_a}
+        val_ids = {row["id"] for row in val_a}
+        self.assertFalse(train_ids & val_ids)
+
+        bands = {length_band(row["document_words"]) for row in train_a}
+        self.assertEqual(bands, {"short", "medium", "long"})
+        self.assertEqual(
+            report["strata"]["three_sentence/long"],
+            {"available": 300, "train": 50, "val": 10},
+        )
+        self.assertEqual(sum(s["train"] for s in report["strata"].values()), 250)
+        self.assertEqual(sum(s["val"] for s in report["strata"].values()), 50)
+
+    def test_caps_oversubscribed_strata_and_backfills(self):
+        rows = self._rows(10, "one_line", "short") + self._rows(990, "three_sentence", "medium")
+        train, val, report = stratified_subset(rows, train_count=200, val_count=40, seed=1)
+        self.assertEqual(len(train), 200)
+        self.assertEqual(len(val), 40)
+        short_stratum = report["strata"]["one_line/short"]
+        self.assertLessEqual(short_stratum["train"] + short_stratum["val"], 10)
+        self.assertEqual(
+            sum(s["train"] + s["val"] for s in report["strata"].values()),
+            240,
+        )
+
+    def test_rejects_counts_beyond_available_rows(self):
+        rows = self._rows(20, "one_line", "short")
+        with self.assertRaisesRegex(ValueError, "available"):
+            stratified_subset(rows, train_count=15, val_count=10, seed=1)
 
 
 class PrepareRowsTests(unittest.TestCase):

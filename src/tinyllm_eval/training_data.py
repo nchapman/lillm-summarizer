@@ -18,7 +18,10 @@ the evaluation documents drops near-duplicate articles before training.
 from __future__ import annotations
 
 import hashlib
+import math
+import random
 import re
+from collections import defaultdict
 from typing import Any, Iterable, Sequence
 
 NGRAM_SIZE = 8
@@ -124,6 +127,111 @@ def _bucket_sentences(counts: Iterable[int]) -> dict[str, int]:
         key = str(count) if count <= 6 else "7+"
         histogram[key] += 1
     return histogram
+
+
+def stratified_subset(
+    rows: list[dict[str, Any]],
+    *,
+    train_count: int,
+    val_count: int,
+    seed: int,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, Any]]:
+    """Split rows into train/val sets stratified by tag and document-length band.
+
+    Allocation is proportional to stratum size (largest-remainder rounding,
+    capped by availability with the shortfall redistributed), and sampling within
+    each stratum is a seeded shuffle, so the split is deterministic for a given
+    input file and seed.
+    """
+    if train_count <= 0 or val_count <= 0:
+        raise ValueError("train_count and val_count must be greater than zero")
+    if train_count + val_count > len(rows):
+        raise ValueError(f"requested {train_count + val_count} rows but only {len(rows)} available")
+
+    rng = random.Random(seed)
+    strata: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
+    for row in rows:
+        strata[(row["tag"], length_band(row["document_words"]))].append(row)
+    for stratum in strata.values():
+        rng.shuffle(stratum)
+
+    total = train_count + val_count
+    targets: dict[tuple[str, str], int] = {key: 0 for key in strata}
+    remaining = total
+    remaining_pool = len(rows)
+    for _ in range(len(strata)):
+        exact = {key: len(rows_in_stratum) * remaining / remaining_pool for key, rows_in_stratum in strata.items()}
+        targets = {
+            key: targets[key] + min(len(strata[key]), math.floor(exact_value))
+            for key, exact_value in exact.items()
+        }
+        remaining = total - sum(targets.values())
+        remaining_pool = sum(len(strata[key]) - taken for key, taken in targets.items())
+        if remaining <= 0 or remaining_pool <= 0:
+            break
+    # Largest-remainder distribution of any leftover slots.
+    while remaining > 0:
+        deficits = sorted(
+            ((len(strata[key]) - taken, key) for key, taken in targets.items()),
+            key=lambda item: (-item[0], item[1]),
+        )
+        capacity, key = deficits[0]
+        if capacity <= 0:
+            raise ValueError("strata exhausted before reaching the requested row count")
+        targets[key] += 1
+        remaining -= 1
+
+    # Exact val split per stratum: floor shares, then distribute leftovers by
+    # largest fractional part so the totals match val_count exactly.
+    val_shares: dict[tuple[str, str], int] = {}
+    fractional: list[tuple[float, tuple[str, str]]] = []
+    for key in strata:
+        raw = targets[key] * val_count / total
+        val_shares[key] = min(targets[key], math.floor(raw))
+        fractional.append((raw - math.floor(raw), key))
+    leftover = val_count - sum(val_shares.values())
+    for _, key in sorted(fractional, reverse=True)[:leftover] if leftover > 0 else []:
+        if val_shares[key] < targets[key]:
+            val_shares[key] += 1
+            leftover -= 1
+    capacity_order = sorted(strata, key=lambda key: (-(targets[key] - val_shares[key]), key))
+    for key in capacity_order:
+        while leftover > 0 and val_shares[key] < targets[key]:
+            val_shares[key] += 1
+            leftover -= 1
+
+    train_rows: list[dict[str, Any]] = []
+    val_rows: list[dict[str, Any]] = []
+    report: dict[str, Any] = {
+        "seed": seed,
+        "total_input_rows": len(rows),
+        "strata": {},
+    }
+    for key in sorted(strata):
+        tag, band = key
+        target = targets[key]
+        val_share = val_shares[key]
+        taken_val = strata[key][:val_share]
+        taken_train = strata[key][val_share : val_share + (target - val_share)]
+        val_rows.extend(taken_val)
+        train_rows.extend(taken_train)
+        report["strata"][f"{tag}/{band}"] = {
+            "available": len(strata[key]),
+            "train": len(taken_train),
+            "val": len(taken_val),
+        }
+    report["train_rows"] = len(train_rows)
+    report["val_rows"] = len(val_rows)
+    return train_rows, val_rows, report
+
+
+def length_band(document_words: int) -> str:
+    """Coarse document-length band used for stratification."""
+    if document_words < 100:
+        return "short"
+    if document_words <= 500:
+        return "medium"
+    return "long"
 
 
 def prepare_rows(

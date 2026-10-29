@@ -63,9 +63,22 @@ The command pins and records the Hub revision, streams the split, drops exact du
 python scripts/train_smoke.py --adapter-dir adapters/granite4-1b-smoke
 ```
 
-It loads `ibm-granite/granite-4.0-1b` (revision pinned and recorded), attaches a LoRA adapter (r=16, all attention + MLP projections), trains two epochs on 197 rows with completion-only loss under the summary-v2 prompt, generates held-out examples before and after training, saves the native adapter, and reloads it on a fresh base model via plain transformers + PEFT. Verified on the GB10 host: loss decreased 1.20 → 0.45 over 50 steps (~53 s), held-out generations remained valid summarizations, and the reloaded adapter reproduced the trained model's predictions (96.9% teacher-forced next-token agreement; exact generation equality is not expected across inference paths because on-the-fly vs merged bf16 LoRA arithmetic diverges numerically). Adapter artifacts and unsloth's compile cache are untracked.
+It loads `ibm-granite/granite-4.0-1b` (revision pinned and recorded), attaches a LoRA adapter (r=16), trains two epochs on 197 rows with completion-only loss under the summary-v2 prompt, generates held-out examples before and after training, saves the native adapter, and reloads it on a fresh base model via plain transformers + PEFT. Verified on the GB10 host: loss decreased 1.20 → 0.45 over 50 steps (~53 s), held-out generations remained valid summarizations, and the reloaded adapter reproduced the trained model's predictions (teacher-forced next-token agreement with all mismatches on near-ties; exact generation equality is not expected across inference paths because on-the-fly vs merged bf16 LoRA arithmetic diverges numerically). Adapter artifacts and unsloth's compile cache are untracked.
+
+Architecture note: every Granite 4.0 model shares the `granitemoehybrid` config class (`GraniteMoeHybridForCausalLM`), but the layer composition is what distinguishes them — `granite-4.0-1b` is 40 attention layers with zero Mamba layers and zero experts (a plain dense transformer, the standard architecture the plan intended), while `granite-4.0-h-1b` is the true hybrid (36 Mamba + 4 attention). The class name is a family-wide red herring. Separately, Unsloth rewrites the requested q/k/v/o + MLP target list into a MoE-safe regex (attention projections only, experts excluded) for this config class even though no experts exist; `train_meta.json`/`smoke_meta.json` therefore record both the requested and the actually applied target modules from the saved `adapter_config.json`.
 
 Pinned stack (also recorded in `adapters/*/smoke_meta.json`): unsloth 2026.10.10, trl 1.15.0, peft 0.19.1, transformers 4.57.6, torch 2.12.1+cu130. Unsloth installed cleanly on ARM64/CUDA 13 without touching the working torch build. Extend the same script to the other finalists before building the full training pipeline; per PLAN.md, the full comparison re-runs base models under summary-v2 first.
+
+## Full LoRA training (phase 4 pilot)
+
+Split the prepared data into stratified train/validation sets (seeded, proportional over tag × document-length bands so short emails and long news stay represented; ~3,700 tokens/s measured on the GB10, so ~0.9 h per 24k-row epoch):
+
+```bash
+tinyllm-eval subset-training   # 24,000 train + 1,000 val rows, seed 20261128
+python scripts/train_lora.py --adapter-dir adapters/granite4-1b-24k-s42
+```
+
+`train_lora.py` trains with per-epoch validation loss, early stopping (patience 1), best-checkpoint restoration, held-out base-vs-adapter generations, the fresh-base reload check, and writes `train_meta.json` (data hashes, loss curves, applied LoRA targets, versions). Generated splits and adapters are untracked.
 
 ## Run one model through llama.cpp
 

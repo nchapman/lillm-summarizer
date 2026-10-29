@@ -33,6 +33,7 @@ from .training_data import (
     build_eval_ngram_set,
     format_report_summary,
     prepare_rows,
+    stratified_subset,
 )
 
 
@@ -143,6 +144,38 @@ def prepare_smoltalk(args: argparse.Namespace) -> None:
     print(format_report_summary(report))
     print(f"Wrote {len(rows)} training rows to {args.output}")
     print(f"Prep metadata: {metadata_path}")
+
+
+def subset_training(args: argparse.Namespace) -> None:
+    for output in (args.train_output, args.val_output):
+        if output.exists() and not args.overwrite:
+            raise FileExistsError(f"Output already exists: {output}; pass --overwrite to replace it")
+    if args.train_count <= 0 or args.val_count <= 0:
+        raise ValueError("--train-count and --val-count must be greater than zero")
+    rows = [json.loads(line) for line in args.input.open(encoding="utf-8") if line.strip()]
+    train_rows, val_rows, report = stratified_subset(
+        rows,
+        train_count=args.train_count,
+        val_count=args.val_count,
+        seed=args.seed,
+    )
+    write_jsonl(args.train_output, train_rows)
+    write_jsonl(args.val_output, val_rows)
+    metadata = {
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "input": str(args.input),
+        "input_sha256": sha256_file(args.input),
+        "train_output": str(args.train_output),
+        "val_output": str(args.val_output),
+        "report": report,
+    }
+    metadata_path = args.train_output.with_suffix(args.train_output.suffix + ".meta.json")
+    metadata_path.write_text(json.dumps(metadata, indent=2) + "\n", encoding="utf-8")
+    for stratum, stats in report["strata"].items():
+        print(f"{stratum}: available {stats['available']}, train {stats['train']}, val {stats['val']}")
+    print(f"Wrote {len(train_rows)} train rows to {args.train_output}")
+    print(f"Wrote {len(val_rows)} validation rows to {args.val_output}")
+    print(f"Subset metadata: {metadata_path}")
 
 
 def _resolve_inference_auth(args: argparse.Namespace) -> tuple[str | None, bool]:
@@ -464,6 +497,19 @@ def build_parser() -> argparse.ArgumentParser:
     prepare_smoltalk_parser.add_argument("--limit", type=int)
     prepare_smoltalk_parser.add_argument("--overwrite", action="store_true")
     prepare_smoltalk_parser.set_defaults(func=prepare_smoltalk)
+
+    subset = commands.add_parser(
+        "subset-training",
+        help="split prepared training data into stratified train/validation sets",
+    )
+    subset.add_argument("--input", type=Path, default=Path("data/train/smoltalk2_smol-summarize_no_think.jsonl"))
+    subset.add_argument("--train-count", type=int, default=24000)
+    subset.add_argument("--val-count", type=int, default=1000)
+    subset.add_argument("--seed", type=int, default=20261128)
+    subset.add_argument("--train-output", type=Path, default=Path("data/train/smoltalk2_stratified_train.jsonl"))
+    subset.add_argument("--val-output", type=Path, default=Path("data/train/smoltalk2_stratified_val.jsonl"))
+    subset.add_argument("--overwrite", action="store_true")
+    subset.set_defaults(func=subset_training)
 
     run = commands.add_parser("run", help="generate summaries through a local or OpenRouter endpoint")
     run.add_argument("--input", type=Path, required=True)
