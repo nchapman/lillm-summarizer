@@ -10,10 +10,19 @@ from unittest.mock import patch
 
 from tinyllm_eval.cli import (
     _resolve_inference_auth,
+    build_parser,
     judge_predictions,
     load_project_env_file,
     prepare_dataset,
 )
+
+
+class InferenceLengthTests(unittest.TestCase):
+    def test_default_allows_longer_summaries_and_explicit_cap_remains_supported(self):
+        command = ["run", "--input", "input.jsonl", "--output", "output.jsonl", "--model", "synthetic"]
+        parser = build_parser()
+        self.assertEqual(parser.parse_args(command).max_new_tokens, 1024)
+        self.assertEqual(parser.parse_args([*command, "--max-new-tokens", "2048"]).max_new_tokens, 2048)
 
 
 class InferenceEndpointTests(unittest.TestCase):

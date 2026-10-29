@@ -14,7 +14,7 @@ except ImportError:
     HAVE_DATA_EXTRA = False
 
 from tinyllm_eval.cli import prepare_smoltalk
-from tinyllm_eval.core import SYSTEM_PROMPT
+from tinyllm_eval.core import PROMPT_VERSION, SYSTEM_PROMPT
 from tinyllm_eval.training_data import (
     build_eval_ngram_set,
     classify_instruction,
@@ -291,7 +291,7 @@ class PrepareSmoltalkCliTests(unittest.TestCase):
             metadata = json.loads(output.with_suffix(".jsonl.meta.json").read_text())
             self.assertEqual(len(rows), 4)
             self.assertEqual(metadata["dataset_revision"], "deadbeef")
-            self.assertEqual(metadata["prompt_version"], "summary-v2")
+            self.assertEqual(metadata["prompt_version"], PROMPT_VERSION)
             self.assertEqual(metadata["leakage_check"]["eval_inputs"][0]["examples"], 1)
             self.assertEqual(metadata["report"]["kept"], 4)
 

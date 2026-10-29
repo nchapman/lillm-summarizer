@@ -1,6 +1,20 @@
 import unittest
 
-from tinyllm_eval.core import sample_stream
+from tinyllm_eval.core import (
+    PROMPT_VERSION, SYSTEM_PROMPT, SYSTEM_PROMPT_V2, USER_PROMPT_TEMPLATE, sample_stream,
+)
+
+
+class SummaryPromptTests(unittest.TestCase):
+    def test_v3_allows_source_dependent_length_and_preserves_legacy_contract(self):
+        self.assertEqual(PROMPT_VERSION, "summary-v3")
+        self.assertIn("provide more detail when the source warrants it", SYSTEM_PROMPT)
+        self.assertIn("multiple paragraphs when helpful", SYSTEM_PROMPT)
+        self.assertIn("do not add unsupported information", SYSTEM_PROMPT)
+        self.assertEqual(USER_PROMPT_TEMPLATE, "{document}")
+        self.assertEqual(SYSTEM_PROMPT_V2,
+                         "Summarize the page below in a concise, objective paragraph that captures its "
+                         "main points and key details, rephrasing the content in your own words.")
 
 
 class SampleStreamTests(unittest.TestCase):

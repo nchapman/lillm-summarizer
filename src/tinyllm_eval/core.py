@@ -15,18 +15,30 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
-# summary-v2 is the single fixed instruction for the summarize button, LoRA training
-# data, and evaluation runs: one line, describing the target shape of the smoltalk2
-# smol-summarize data (concise, objective, abstractive).
-PROMPT_VERSION = "summary-v2"
+# One shared contract for training, evaluation and deployment. Length follows
+# source complexity; neither a word count nor a single paragraph is imposed.
+PROMPT_VERSION = "summary-v3"
 SYSTEM_PROMPT = (
-    "Summarize the page below in a concise, objective paragraph that captures its "
-    "main points and key details, rephrasing the content in your own words."
+    "Summarize the page below clearly and objectively, capturing its main points "
+    "and important supporting details in your own words. Keep simple material "
+    "brief, and provide more detail when the source warrants it. State the "
+    "substance directly rather than describing the page, attributing opinions "
+    "or arguments inline where appropriate. Write in plain prose without markdown, "
+    "using multiple paragraphs when helpful, and do not "
+    "add unsupported information."
 )
 USER_PROMPT_TEMPLATE = "{document}"
 
-# summary-v1 produced the recorded baseline and confirmation tables; kept verbatim so
-# those runs stay reproducible. Adapter comparisons must re-run base models under v2.
+# Preserve previous contracts verbatim for historical runs and explicit migration
+# of prepared v2 pools. New adapter comparisons need fresh v3 base predictions.
+PROMPT_VERSION_V2 = "summary-v2"
+SYSTEM_PROMPT_V2 = (
+    "Summarize the page below in a concise, objective paragraph that captures its "
+    "main points and key details, rephrasing the content in your own words."
+)
+USER_PROMPT_TEMPLATE_V2 = "{document}"
+
+# summary-v1 produced the recorded baseline and confirmation tables.
 PROMPT_VERSION_V1 = "summary-v1"
 SYSTEM_PROMPT_V1 = (
     "You are a careful summarizer. Summarize the source using only information "

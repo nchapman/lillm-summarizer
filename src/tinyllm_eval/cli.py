@@ -544,7 +544,8 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--quantization", default="unrecorded", help="for example Q8_0")
     run.add_argument("--server-version", default="unrecorded", help="for example llama.cpp commit SHA")
     run.add_argument("--base-url", default="http://127.0.0.1:8080/v1")
-    run.add_argument("--max-new-tokens", type=int, default=192)
+    run.add_argument("--max-new-tokens", type=int, default=1024,
+                     help="output safety ceiling, not a target length; reserve this much server context")
     run.add_argument("--temperature", type=float)
     run.add_argument("--top-p", type=float)
     run.add_argument("--top-k", type=int)
