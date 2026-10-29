@@ -2,9 +2,9 @@
 
 Loads the prepared smoltalk2 summarization data, fine-tunes a LoRA adapter on a
 small slice, checks that the loss decreases, saves the native adapter, and
-verifies it reloads on a freshly loaded base model (outside Unsloth) and
-produces identical output. Sample generations run before (adapter disabled) and
-after training so the behavioral delta is visible.
+checks prompt-prefix predictions on a freshly loaded base model (outside
+Unsloth). This heuristic does not establish deployment equivalence. Sample
+generations show base (adapter disabled) versus adapter behavior after training.
 
 Usage (defaults target Granite 4.0 1B):
     python scripts/train_smoke.py --adapter-dir adapters/granite4-1b-smoke
@@ -17,6 +17,10 @@ import json
 import sys
 from pathlib import Path
 
+# Unsloth must patch Transformers/TRL/PEFT before they are imported.
+import unsloth
+from unsloth import FastLanguageModel
+
 import torch
 from datasets import Dataset
 from huggingface_hub import HfApi
@@ -25,8 +29,6 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 import peft
 import transformers
 import trl
-import unsloth
-from unsloth import FastLanguageModel
 from trl import SFTConfig, SFTTrainer
 
 DEFAULT_MODEL = "ibm-granite/granite-4.0-1b"
@@ -96,11 +98,9 @@ def next_token_agreement(
 
     Returns ``(agreement, worst_flip_margin)``: the fraction of positions whose
     greedy next token matches, and — among mismatching positions — how strongly
-    model_a preferred its own pick, in logit units. Exact generation equality
-    is not expected across inference paths: bf16 LoRA applied on the fly vs
-    merged weights (and hybrid-Mamba recurrent scans) differ in floating-point
-    op order, flipping only near-ties. A flip with a margin of one logit or
-    more indicates a real discrepancy, not noise.
+    model_a preferred its own pick, in logit units. This check covers only a
+    prompt prefix, not the assistant output. Different inference backends can
+    disagree; these thresholds do not prove that differences are numerical noise.
     """
     text = tokenizer.apply_chat_template(prompt_messages, tokenize=False, add_generation_prompt=True)
     inputs = tokenizer(text, return_tensors="pt")
@@ -130,6 +130,8 @@ def main() -> None:
     model, tokenizer = FastLanguageModel.from_pretrained(
         model_name=args.model,
         revision=revision,
+        use_exact_model_name=True,
+        dtype=torch.bfloat16,
         max_seq_length=args.max_length,
         load_in_4bit=False,
     )
@@ -202,14 +204,20 @@ def main() -> None:
             f"Reloaded adapter disagrees with the trained model "
             f"(agreement {agreement:.3f}, worst flip margin {worst_flip:.3f})"
         )
-    print("reload check passed: differences are numeric noise on near-ties")
+    print("prompt-prefix reload heuristic passed; this is not a deployment-equivalence check")
 
+    saved_config = json.loads((args.adapter_dir / "adapter_config.json").read_text())
     metadata = {
         "model": args.model,
         "model_revision": revision,
         "data": str(args.data),
         "data_rows": {"limit": args.limit, "train": len(train_rows), "holdout": len(holdout_rows)},
-        "lora": {"r": 16, "alpha": 16, "dropout": 0.0, "target_modules": target_modules},
+        "lora": {
+            "r": 16, "alpha": 16, "dropout": 0.0,
+            "requested_target_modules": target_modules,
+            "applied_target_modules": saved_config.get("target_modules"),
+        },
+        "heldout_generations": samples,
         "training": {
             "epochs": args.epochs,
             "per_device_train_batch_size": 2,

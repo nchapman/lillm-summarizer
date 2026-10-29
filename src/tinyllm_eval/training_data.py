@@ -18,10 +18,12 @@ the evaluation documents drops near-duplicate articles before training.
 from __future__ import annotations
 
 import hashlib
+import json
 import math
 import random
 import re
 from collections import defaultdict
+from pathlib import Path
 from typing import Any, Iterable, Sequence
 
 NGRAM_SIZE = 8
@@ -36,6 +38,33 @@ INSTRUCTION_TAG_MARKERS = {
     "three_sentence": ("up to three sentences",),
     "one_line": ("one very short sentence",),
 }
+
+
+def load_chat_rows(path: Path, limit: int | None = None, *, seed: int = 42) -> list[dict]:
+    """Load all rows, or a reproducible uniform sample rather than a sorted prefix.
+
+    Stratified split files are grouped by stratum; taking their first N rows
+    silently biases validation toward one instruction/length band.
+    """
+    if limit is not None and limit <= 0:
+        raise ValueError("limit must be positive")
+    rows = []
+    with path.open(encoding="utf-8") as stream:
+        for line in stream:
+            record = json.loads(line)
+            messages = record["messages"]
+            rows.append(
+                {
+                    "prompt": [{"role": m["role"], "content": m["content"]} for m in messages[:-1]],
+                    "completion": [{"role": "assistant", "content": messages[-1]["content"]}],
+                    "id": record["id"],
+                }
+            )
+    if not rows:
+        raise ValueError(f"No rows loaded from {path}")
+    if limit is not None and limit < len(rows):
+        rows = random.Random(seed).sample(rows, limit)
+    return rows
 
 
 def classify_instruction(instruction: str) -> str:

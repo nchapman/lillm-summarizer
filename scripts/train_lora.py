@@ -12,8 +12,13 @@ from __future__ import annotations
 
 import argparse
 import json
+import random
 import sys
 from pathlib import Path
+
+# Unsloth must patch Transformers/TRL/PEFT before they are imported.
+import unsloth
+from unsloth import FastLanguageModel
 
 import torch
 from datasets import Dataset
@@ -23,9 +28,8 @@ from transformers import AutoModelForCausalLM, AutoTokenizer, EarlyStoppingCallb
 import peft
 import transformers
 import trl
-import unsloth
-from unsloth import FastLanguageModel
 from trl import SFTConfig, SFTTrainer
+from tinyllm_eval.training_data import load_chat_rows
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from train_smoke import generate, next_token_agreement, resolve_target_modules  # noqa: E402
@@ -50,31 +54,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--grad-accum", type=int, default=1)
     parser.add_argument("--max-length", type=int, default=3072)
     parser.add_argument("--limit", type=int, help="cap training rows (smoke only)")
-    parser.add_argument("--val-limit", type=int, default=200, help="validation rows used for eval loss")
+    parser.add_argument("--val-limit", type=int, help="optional seeded validation sample; default uses the entire split")
     parser.add_argument("--sample-count", type=int, default=3, help="held-out generations shown")
     parser.add_argument("--resume", type=Path, help="checkpoint directory to resume from")
     parser.add_argument("--seed", type=int, default=42)
     return parser.parse_args()
-
-
-def load_chat_rows(path: Path, limit: int | None = None) -> list[dict]:
-    rows = []
-    with path.open(encoding="utf-8") as stream:
-        for line in stream:
-            if limit is not None and len(rows) >= limit:
-                break
-            record = json.loads(line)
-            messages = record["messages"]
-            rows.append(
-                {
-                    "prompt": [{"role": m["role"], "content": m["content"]} for m in messages[:-1]],
-                    "completion": [{"role": "assistant", "content": messages[-1]["content"]}],
-                    "id": record["id"],
-                }
-            )
-    if not rows:
-        raise ValueError(f"No rows loaded from {path}")
-    return rows
 
 
 def sha256_file(path: Path) -> str:
@@ -94,13 +78,15 @@ def main() -> None:
     print(f"unsloth {unsloth.__version__} | trl {trl.__version__} | peft {peft.__version__} | "
           f"transformers {transformers.__version__} | torch {torch.__version__}")
 
-    train_rows = load_chat_rows(args.train, args.limit)
-    val_rows = load_chat_rows(args.val, args.val_limit)
-    print(f"rows: {len(train_rows)} train, {len(val_rows)} validation (of {args.val_limit} capped)")
+    train_rows = load_chat_rows(args.train, args.limit, seed=args.seed)
+    val_rows = load_chat_rows(args.val, args.val_limit, seed=args.seed)
+    print(f"rows: {len(train_rows)} train, {len(val_rows)} validation")
 
     model, tokenizer = FastLanguageModel.from_pretrained(
         model_name=args.model,
         revision=revision,
+        use_exact_model_name=True,
+        dtype=torch.bfloat16,
         max_seq_length=args.max_length,
         load_in_4bit=False,
     )
@@ -138,6 +124,7 @@ def main() -> None:
         load_best_model_at_end=True,
         metric_for_best_model="eval_loss",
         greater_is_better=False,
+        restore_callback_states_from_checkpoint=True,
     )
     trainer = SFTTrainer(
         model=model,
@@ -161,7 +148,8 @@ def main() -> None:
     FastLanguageModel.for_inference(model)
     samples = []
     print("\n=== validation generations (base vs adapter) ===")
-    for row in val_rows[: args.sample_count]:
+    sample_rows = random.Random(args.seed).sample(val_rows, min(args.sample_count, len(val_rows)))
+    for row in sample_rows:
         adapter_output = generate(model, tokenizer, row["prompt"])
         with model.disable_adapter():
             base_output = generate(model, tokenizer, row["prompt"])
@@ -185,10 +173,9 @@ def main() -> None:
             f"Reloaded adapter disagrees with the trained model "
             f"(agreement {agreement:.3f}, worst flip margin {worst_flip:.3f})"
         )
-    print("reload check passed: differences are numeric noise on near-ties")
+    print("prompt-prefix reload heuristic passed; this is not a deployment-equivalence check")
 
-    # Unsloth may rewrite LoRA targets for MoE/hybrid architectures (e.g.
-    # attention-only, experts excluded); record what was actually saved.
+    # Record the saved targets rather than inferring them from requested names.
     saved_adapter_config = json.loads((args.adapter_dir / "adapter_config.json").read_text())
     applied_targets = saved_adapter_config.get("target_modules")
 
@@ -202,6 +189,8 @@ def main() -> None:
             "val": str(args.val),
             "val_sha256": sha256_file(args.val),
             "val_rows": len(val_rows),
+            "train_ids": [row["id"] for row in train_rows],
+            "val_ids": [row["id"] for row in val_rows],
         },
         "lora": {
             "r": 16,
@@ -225,6 +214,7 @@ def main() -> None:
             "best_eval_loss": best_loss,
             "best_eval_epoch": best_epoch,
         },
+        "heldout_generations": samples,
         "reload_next_token_agreement": agreement,
         "reload_worst_flip_margin": worst_flip,
         "versions": {
