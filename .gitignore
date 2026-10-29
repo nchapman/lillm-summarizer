@@ -9,5 +9,6 @@ __pycache__/
 # Downloaded datasets, model files, generated predictions, and reports
 data/downloads/
 data/eval/*.jsonl
+data/train/*.jsonl
 runs/
 models/

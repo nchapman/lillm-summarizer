@@ -18,12 +18,21 @@ from .core import (
     OPENROUTER_BASE_URL,
     OPENROUTER_DEFAULT_MODEL,
     PROMPT_VERSION,
+    SYSTEM_PROMPT,
+    USER_PROMPT_TEMPLATE,
     load_jsonl,
     request_judgment,
     request_summary,
     sample_stream,
     sha256_file,
     write_jsonl,
+)
+from .training_data import (
+    LEAKAGE_THRESHOLD_DEFAULT,
+    NGRAM_SIZE,
+    build_eval_ngram_set,
+    format_report_summary,
+    prepare_rows,
 )
 
 
@@ -58,6 +67,82 @@ def prepare_dataset(args: argparse.Namespace) -> None:
     write_jsonl(args.output, rows)
     print(f"Wrote {len(rows)} test examples to {args.output}")
     print("Note: streaming reservoir sampling scans the test split; preserve the resulting file to reuse this exact sample.")
+
+
+SMOLTALK2_DATASET_ID = "HuggingFaceTB/smoltalk2"
+SMOLTALK2_CONFIG = "SFT"
+SMOLTALK2_SPLIT = "smoltalk_smollm3_smol_summarize_no_think"
+DEFAULT_LEAKAGE_EVAL_INPUTS = (
+    Path("data/eval/cnn_dailymail_test_pilot.jsonl"),
+    Path("data/eval/cnn_dailymail_test_confirmation.jsonl"),
+)
+
+
+def prepare_smoltalk(args: argparse.Namespace) -> None:
+    if args.output.exists() and not args.overwrite:
+        raise FileExistsError(f"Output already exists: {args.output}; pass --overwrite to replace it")
+    if not 0 <= args.leakage_threshold <= 1:
+        raise ValueError("--leakage-threshold must be between 0 and 1")
+    if args.limit is not None and args.limit <= 0:
+        raise ValueError("--limit must be greater than zero")
+    try:
+        from datasets import load_dataset
+    except ImportError as exc:
+        raise RuntimeError("Dataset preparation requires `pip install -e '.[data]'`") from exc
+    try:
+        from huggingface_hub import HfApi
+    except ImportError as exc:
+        raise RuntimeError("Revision pinning requires the huggingface_hub package") from exc
+
+    revision = args.dataset_revision or HfApi().dataset_info(SMOLTALK2_DATASET_ID).sha
+    eval_inputs = args.eval_input or list(DEFAULT_LEAKAGE_EVAL_INPUTS)
+    eval_documents: list[str] = []
+    eval_input_records: list[dict[str, Any]] = []
+    for eval_input in eval_inputs:
+        records = load_jsonl(eval_input)
+        eval_documents.extend(row["document"] for row in records)
+        eval_input_records.append(
+            {"path": str(eval_input), "sha256": sha256_file(eval_input), "examples": len(records)}
+        )
+
+    stream = load_dataset(
+        SMOLTALK2_DATASET_ID,
+        SMOLTALK2_CONFIG,
+        split=SMOLTALK2_SPLIT,
+        streaming=True,
+        revision=revision,
+    )
+    source_label = f"{SMOLTALK2_DATASET_ID}:{SMOLTALK2_CONFIG}:{SMOLTALK2_SPLIT}@{revision}"
+    rows, report = prepare_rows(
+        stream,
+        system_prompt=SYSTEM_PROMPT,
+        eval_ngrams=build_eval_ngram_set(eval_documents),
+        source_label=source_label,
+        leakage_threshold=args.leakage_threshold,
+        limit=args.limit,
+    )
+    write_jsonl(args.output, rows)
+    metadata = {
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "dataset": SMOLTALK2_DATASET_ID,
+        "config": SMOLTALK2_CONFIG,
+        "split": SMOLTALK2_SPLIT,
+        "dataset_revision": revision,
+        "prompt_version": PROMPT_VERSION,
+        "system_prompt": SYSTEM_PROMPT,
+        "user_prompt_template": USER_PROMPT_TEMPLATE,
+        "leakage_check": {
+            "method": f"word {NGRAM_SIZE}-gram containment against evaluation documents",
+            "threshold": args.leakage_threshold,
+            "eval_inputs": eval_input_records,
+        },
+        "report": report,
+    }
+    metadata_path = args.output.with_suffix(args.output.suffix + ".meta.json")
+    metadata_path.write_text(json.dumps(metadata, indent=2) + "\n", encoding="utf-8")
+    print(format_report_summary(report))
+    print(f"Wrote {len(rows)} training rows to {args.output}")
+    print(f"Prep metadata: {metadata_path}")
 
 
 def _resolve_inference_auth(args: argparse.Namespace) -> tuple[str | None, bool]:
@@ -349,6 +434,36 @@ def build_parser() -> argparse.ArgumentParser:
     prepare.add_argument("--exclude-input", type=Path, help="JSONL sample whose IDs must not be selected")
     prepare.add_argument("--overwrite", action="store_true")
     prepare.set_defaults(func=prepare_dataset)
+
+    prepare_smoltalk_parser = commands.add_parser(
+        "prepare-smoltalk",
+        help="prepare smoltalk2 smol-summarize training data under the fixed summarize prompt",
+    )
+    prepare_smoltalk_parser.add_argument(
+        "--output", type=Path, default=Path("data/train/smoltalk2_smol-summarize_no_think.jsonl")
+    )
+    prepare_smoltalk_parser.add_argument(
+        "--eval-input",
+        type=Path,
+        action="append",
+        default=None,
+        help="frozen evaluation JSONL to leakage-check against (repeatable; "
+        "defaults to the pilot and confirmation files)",
+    )
+    prepare_smoltalk_parser.add_argument(
+        "--dataset-revision",
+        default=None,
+        help="pin a Hub revision; defaults to the current main commit and records it",
+    )
+    prepare_smoltalk_parser.add_argument(
+        "--leakage-threshold",
+        type=float,
+        default=LEAKAGE_THRESHOLD_DEFAULT,
+        help="drop training rows whose 8-gram containment reaches this value (default: 0.2)",
+    )
+    prepare_smoltalk_parser.add_argument("--limit", type=int)
+    prepare_smoltalk_parser.add_argument("--overwrite", action="store_true")
+    prepare_smoltalk_parser.set_defaults(func=prepare_smoltalk)
 
     run = commands.add_parser("run", help="generate summaries through a local or OpenRouter endpoint")
     run.add_argument("--input", type=Path, required=True)

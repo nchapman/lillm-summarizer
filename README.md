@@ -37,6 +37,24 @@ tinyllm-eval prepare-cnn-dm \
 
 This is a second seeded reservoir sample from the remaining test examples, not a replacement for the original pilot. The confirmation set has 250 unique IDs and no article or ID overlap with the pilot. Its SHA-256 is `047f62c289d3eb08ce3dd5f3096736cf40f0414b1f602a052ee8e79a1377e75e`; 101/250 articles have ≤500 words, 115 have 501–1000, and 34 have >1000. A scan of the remaining valid test split found respective proportions of 35.5%, 47.0%, and 17.4%, so the random sample includes all three length bands without imposed quotas. Keep the JSONL itself for exact reuse; the exclusion-source hash is recorded in every row.
 
+## Summarize prompt (summary-v2)
+
+All new runs, LoRA training data, and the eventual summarize button share one fixed instruction (`PROMPT_VERSION=summary-v2`, defined in `src/tinyllm_eval/core.py`):
+
+> Summarize the page below in a concise, objective paragraph that captures its main points and key details, rephrasing the content in your own words.
+
+The system message carries the instruction; the user message is the raw page text. The recorded baseline and confirmation tables were produced under `summary-v1` (also kept in `core.py`), so adapter-phase comparisons must re-run each base model under v2 before comparing LoRA gains.
+
+## Prepare LoRA training data (smoltalk2)
+
+The training data is `HuggingFaceTB/smoltalk2`, config `SFT`, split `smoltalk_smollm3_smol_summarize_no_think` (96,061 rows; news-article and email summarization targets distilled from a larger teacher). Provenance: the news portion comes from the CNN/DailyMail 3.0.0 **train** split — never the test split our evaluation samples — and rows carry one of two generic length instructions ("up to three sentences" or "one very short sentence") in `chat_template_kwargs.custom_instructions`; the news/email split is not recoverable from the data. Both content types are kept for general web-page summarization.
+
+```bash
+tinyllm-eval prepare-smoltalk
+```
+
+The command pins and records the Hub revision, streams the split, drops exact duplicate documents and any row whose 8-gram containment against both frozen evaluation files reaches 0.2, prepends the fixed summary-v2 system prompt, and writes `data/train/smoltalk2_smol-summarize_no_think.jsonl` plus a `.meta.json` report (only the meta report is tracked). Current output: 92,704 rows kept (59,855 `three_sentence`, 32,849 `one_line`), 3,333 duplicates and 24 leakage near-duplicates dropped (max kept score 0.198). Target shape: `one_line` targets are one sentence (p50 18 words); `three_sentence` targets are p50 62 words but only half are 2–3 sentences — 16% run 4–6 sentences and 33% are 7+ (p75 163 words), i.e. the teacher frequently exceeded its "up to three sentences" instruction on long articles, so treat that tag as instruction provenance rather than a length guarantee. Rows keep `document_words`/`target_words`/`tag`/`leakage_score` fields for later mix or length ablations. As with the evaluation files, preserve the generated JSONL for exact reuse; regenerate only with `--overwrite` and an intentional revision change.
+
 ## Run one model through llama.cpp
 
 The repo's llama.cpp checkout has a CUDA build at `/home/nchapman/Code/llama.cpp/build-cuda/bin/llama-server` (commit `0878f7c`, build `0.7.0-dev`). It is external to this repo and is not modified by this harness. Hub checks found `UD-Q4_K_XL` files for Qwen3.5, LFM2.5, and Granite; MiniCPM5 uses the official `Q4_K_M` GGUF:

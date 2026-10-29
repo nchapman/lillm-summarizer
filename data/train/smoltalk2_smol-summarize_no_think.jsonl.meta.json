@@ -1,0 +1,89 @@
+{
+  "created_at": "2026-10-29T00:42:03.509091+00:00",
+  "dataset": "HuggingFaceTB/smoltalk2",
+  "config": "SFT",
+  "split": "smoltalk_smollm3_smol_summarize_no_think",
+  "dataset_revision": "fc6cc2103c066455aade5d7fbb346039ae36ca5e",
+  "prompt_version": "summary-v2",
+  "system_prompt": "Summarize the page below in a concise, objective paragraph that captures its main points and key details, rephrasing the content in your own words.",
+  "user_prompt_template": "{document}",
+  "leakage_check": {
+    "method": "word 8-gram containment against evaluation documents",
+    "threshold": 0.2,
+    "eval_inputs": [
+      {
+        "path": "data/eval/cnn_dailymail_test_pilot.jsonl",
+        "sha256": "e45c1587fe25dc3cf510adbda8b5ac962a74417b2f51f47e3a2606e46a251d93",
+        "examples": 50
+      },
+      {
+        "path": "data/eval/cnn_dailymail_test_confirmation.jsonl",
+        "sha256": "047f62c289d3eb08ce3dd5f3096736cf40f0414b1f602a052ee8e79a1377e75e",
+        "examples": 250
+      }
+    ]
+  },
+  "report": {
+    "total_input_rows": 96061,
+    "kept": 92704,
+    "dropped_leakage": 24,
+    "dropped_duplicate": 3333,
+    "invalid_rows": 0,
+    "leakage_threshold": 0.2,
+    "leakage_max_seen": 0.705607476635514,
+    "leakage_max_kept": 0.1984,
+    "tag_note": "tags describe the original instruction variant; news/email content type is not recoverable from the data",
+    "by_tag": {
+      "one_line": {
+        "rows": 32849,
+        "target_sentence_histogram": {
+          "1": 30881,
+          "2": 1867,
+          "3": 99,
+          "4": 2,
+          "5": 0,
+          "6": 0,
+          "7+": 0
+        },
+        "target_word_percentiles": {
+          "p25": 15,
+          "p50": 18,
+          "p75": 21,
+          "p95": 26
+        },
+        "document_word_percentiles": {
+          "p50": 128,
+          "p95": 207
+        },
+        "example_instructions": [
+          "Extract and present the main key point of the input text in one very short sentence, including essential details like dates or locations if necessary."
+        ]
+      },
+      "three_sentence": {
+        "rows": 59855,
+        "target_sentence_histogram": {
+          "1": 92,
+          "2": 9235,
+          "3": 21442,
+          "4": 1626,
+          "5": 3002,
+          "6": 4736,
+          "7+": 19722
+        },
+        "target_word_percentiles": {
+          "p25": 49,
+          "p50": 62,
+          "p75": 163,
+          "p95": 199
+        },
+        "document_word_percentiles": {
+          "p50": 185,
+          "p95": 1124
+        },
+        "example_instructions": [
+          "Provide a concise, objective summary of the input text in up to three sentences, focusing on key actions and intentions without using second or third person pronouns."
+        ]
+      }
+    }
+  }
+}
