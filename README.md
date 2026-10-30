@@ -24,6 +24,13 @@ Details, full confidence intervals, and the 350M cap sensitivity experiment: [ba
 
 ## Results: with our adapters
 
+Four PEFT LoRA adapters and model cards are published on Hugging Face:
+
+- [Qwen3.5-0.8B summarization LoRA](https://huggingface.co/nchapman/qwen3.5-0.8b-summarization-lora) · [card source](docs/model-cards/qwen3.5-0.8b-summarization-lora.md)
+- [Qwen3.5-2B summarization LoRA](https://huggingface.co/nchapman/qwen3.5-2b-summarization-lora) · [card source](docs/model-cards/qwen3.5-2b-summarization-lora.md)
+- [Granite 4.0-1B summarization LoRA](https://huggingface.co/nchapman/granite-4.0-1b-summarization-lora) · [card source](docs/model-cards/granite-4.0-1b-summarization-lora.md)
+- [Granite 4.0-350M summarization LoRA](https://huggingface.co/nchapman/granite-4.0-350m-summarization-lora) · [card source](docs/model-cards/granite-4.0-350m-summarization-lora.md)
+
 ### Qwen3.5: measured improvement
 
 On the larger 250-article battery, both Qwen adapters improved their own base models under matched Q4 inference, a fresh shared prompt (`summary-v3`), and the same generation settings. Ratings are means on the 1–5 judge scale. The experiment used one training seed and bounded early-training checkpoints; public and private training data were mixed.
@@ -37,11 +44,16 @@ Factuality, relevance, concision, overall quality, and ROUGE improved; coverage 
 
 Full protocol, all six judge dimensions, paired intervals, training correctness checks, and limitations: [Qwen adapter results](docs/results/qwen-adapters.md).
 
-### Granite 4.0-1B: an earlier adapter milestone, not an improvement
+### Granite 4.0: mixed exploratory findings
 
-The separately reported Granite epoch-1 experiment used an earlier prompt and a 256-token output cap. On its 250-example set, the adapter raised coverage but reduced factuality (4.324 → 4.048), overall quality (4.084 → 3.920), and ROUGE-L (0.2201 → 0.2007); mean output length increased from 115.9 to 149.7 words. This was an end-to-end training/export/serving milestone before training was finished, not a final verdict on the model family.
+Matched `summary-v3` evaluations are available for both Granite sizes. The 1B adapter improved ROUGE and concision while lowering coverage; factuality and overall-quality differences were inconclusive, and a few outputs tripped automatic guardrails. The 350M adapter had fewer cap/degeneration flags than its base, while factuality, relevance, readability, and overall judge scores were lower. Neither adapter passed the automatic quality-acceptance gate; both are shared as exploratory LoRAs, not quality upgrades.
 
-[Granite adapter evaluation](docs/results/granite-epoch1-adapter.md) · [Granite training and deployment audit](docs/results/granite-training-audit.md)
+| Model | Evaluated adapter checkpoint | Factuality: base → adapter | Overall quality: base → adapter | ROUGE-1: base → adapter |
+| --- | --- | ---: | ---: | ---: |
+| Granite 4.0-1B | `early512/checkpoint-128` | 4.288 → 4.308 | 4.024 → 4.004 | 0.3219 → 0.3454 |
+| Granite 4.0-350M | `lr5e5/checkpoint-4456` | 3.620 → 2.744 | 3.124 → 2.736 | 0.3083 → 0.3044 |
+
+Full paired intervals, all judge dimensions, diagnostics, and protocol: [Granite v3 adapter results](docs/results/granite-v3-adapters.md). The earlier 1B checkpoint-3000 report used a different prompt and 256-token cap; it remains a separate training/export milestone, not the matched v3 comparison: [earlier Granite evaluation](docs/results/granite-epoch1-adapter.md) · [Granite training and deployment audit](docs/results/granite-training-audit.md).
 
 ## Reproduce the public-data experiment
 
@@ -62,6 +74,7 @@ See [private-data notes](docs/recipes/private-data.md) for the preserved entry p
 - `tests/` — automated unit and behavior tests.
 - `docs/recipes/` — concise public-only and private-data workflows.
 - `docs/results/` — full experiment reports, historical evidence, and audits.
+- `docs/model-cards/` — the four released LoRA adapter cards.
 - `data/`, `runs/`, `models/`, `adapters/` — local inputs/artifacts; ignored by Git.
 
 ## Setup and checks
