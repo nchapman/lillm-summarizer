@@ -185,30 +185,13 @@ def stratified_subset(
         rng.shuffle(stratum)
 
     total = train_count + val_count
-    targets: dict[tuple[str, str], int] = {key: 0 for key in strata}
-    remaining = total
-    remaining_pool = len(rows)
-    for _ in range(len(strata)):
-        exact = {key: len(rows_in_stratum) * remaining / remaining_pool for key, rows_in_stratum in strata.items()}
-        targets = {
-            key: targets[key] + min(len(strata[key]), math.floor(exact_value))
-            for key, exact_value in exact.items()
-        }
-        remaining = total - sum(targets.values())
-        remaining_pool = sum(len(strata[key]) - taken for key, taken in targets.items())
-        if remaining <= 0 or remaining_pool <= 0:
-            break
-    # Largest-remainder distribution of any leftover slots.
-    while remaining > 0:
-        deficits = sorted(
-            ((len(strata[key]) - taken, key) for key, taken in targets.items()),
-            key=lambda item: (-item[0], item[1]),
-        )
-        capacity, key = deficits[0]
-        if capacity <= 0:
-            raise ValueError("strata exhausted before reaching the requested row count")
+    exact = {key: len(stratum) * total / len(rows) for key, stratum in strata.items()}
+    targets = {key: math.floor(share) for key, share in exact.items()}
+    leftover = total - sum(targets.values())
+    for key in sorted(strata, key=lambda item: (-(exact[item] - targets[item]), item))[:leftover]:
         targets[key] += 1
-        remaining -= 1
+    if sum(targets.values()) != total or any(targets[key] > len(strata[key]) for key in strata):
+        raise RuntimeError("stratified allocation failed to match the requested row count")
 
     # Exact val split per stratum: floor shares, then distribute leftovers by
     # largest fractional part so the totals match val_count exactly.

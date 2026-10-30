@@ -1,6 +1,6 @@
 import pytest
 
-from tinyllm_eval.training_audit import (
+from lillm_eval.training_audit import (
     audit_prepared_dataset, check_collated_batch, check_completion_sequence,
 )
 

@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from tinyllm_eval.training_checks import (
+from lillm_eval.training_checks import (
     check_fresh, check_sequence, checkpoint_schedule, load_prepared, source_groups,
     check_step_budget, apply_step_budget,
 )

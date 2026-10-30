@@ -6,10 +6,10 @@ import os
 
 import pytest
 
-from tinyllm_eval.cli import build_parser
-from tinyllm_eval.core import SYSTEM_PROMPT, sha256_file
-from tinyllm_eval.folio_data import prepare_folio
-from tinyllm_eval.training_data import load_chat_rows
+from lillm_eval.cli import build_parser
+from lillm_eval.core import SYSTEM_PROMPT, sha256_file
+from lillm_eval.folio_data import prepare_folio
+from lillm_eval.training_data import load_chat_rows
 
 TEACHER_PROMPT = SYSTEM_PROMPT + " Write in plain prose without markdown formatting."
 
@@ -210,7 +210,7 @@ def test_metadata_publication_failure_restores_previous_state(
             raise OSError("injected metadata publication failure")
         return real_replace(src, dst)
 
-    monkeypatch.setattr("tinyllm_eval.folio_data.os.replace", fail_metadata_replace)
+    monkeypatch.setattr("lillm_eval.folio_data.os.replace", fail_metadata_replace)
     with pytest.raises(OSError, match="injected metadata publication failure"):
         run(source, eval_path, output, overwrite=True)
 
@@ -261,7 +261,7 @@ def test_rejects_destination_directories_before_publication(
     def unexpected_replace(src, dst):
         pytest.fail("destination directories must be rejected before publication")
 
-    monkeypatch.setattr("tinyllm_eval.folio_data.os.replace", unexpected_replace)
+    monkeypatch.setattr("lillm_eval.folio_data.os.replace", unexpected_replace)
     with pytest.raises(IsADirectoryError):
         run(source, eval_path, output, overwrite=True)
 

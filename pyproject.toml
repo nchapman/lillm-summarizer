@@ -3,7 +3,7 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "tinyllm-summarization"
+name = "lillm-summarizer"
 version = "0.1.0"
 description = "Reproducible evaluation harness for small-model summarization"
 requires-python = ">=3.10"
@@ -45,7 +45,7 @@ url = "https://download.pytorch.org/whl/cu130"
 explicit = true
 
 [project.scripts]
-tinyllm-eval = "tinyllm_eval.cli:main"
+lillm-summarizer = "lillm_eval.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

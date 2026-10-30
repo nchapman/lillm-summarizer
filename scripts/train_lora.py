@@ -16,14 +16,14 @@ import random
 import sys
 from pathlib import Path
 
-from tinyllm_eval.core import SYSTEM_PROMPT, PROMPT_VERSION
-from tinyllm_eval.training_data import load_chat_rows
-from tinyllm_eval.training_checks import (
+from lillm_eval.core import SYSTEM_PROMPT, PROMPT_VERSION
+from lillm_eval.training_data import load_chat_rows
+from lillm_eval.training_checks import (
     check_fresh, load_prepared, source_groups, checkpoint_schedule,
     check_step_budget, apply_step_budget,
 )
 
-from tinyllm_eval.training_audit import audit_prepared_dataset
+from lillm_eval.training_audit import audit_prepared_dataset
 
 DEFAULT_MODEL = "ibm-granite/granite-4.0-1b"
 DEFAULT_TRAIN = Path("data/train/smoltalk2_stratified_train.jsonl")

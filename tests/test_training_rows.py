@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from tinyllm_eval.training_data import load_chat_rows
+from lillm_eval.training_data import load_chat_rows
 
 
 def write_rows(path: Path, count: int = 100) -> None:

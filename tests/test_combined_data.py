@@ -10,9 +10,9 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from tinyllm_eval import combined_data
-from tinyllm_eval.combined_data import prepare_combined
-from tinyllm_eval.core import PROMPT_VERSION, SYSTEM_PROMPT, SYSTEM_PROMPT_V2, sha256_file
+from lillm_eval import combined_data
+from lillm_eval.combined_data import prepare_combined
+from lillm_eval.core import PROMPT_VERSION, SYSTEM_PROMPT, SYSTEM_PROMPT_V2, sha256_file
 from types import SimpleNamespace
 
 

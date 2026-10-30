@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 from urllib.error import HTTPError, URLError
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from tinyllm_eval.core import request_judgment, request_summary
+from lillm_eval.core import request_judgment, request_summary
 
 
 class InferenceRequestTests(unittest.TestCase):
@@ -225,9 +225,9 @@ class JudgeRequestTests(unittest.TestCase):
             io.BytesIO(b"temporary outage"),
         )
 
-        with patch("tinyllm_eval.core.build_opener") as build_opener, patch(
-            "tinyllm_eval.core.time.sleep"
-        ) as sleep, patch("tinyllm_eval.core.random.uniform", side_effect=lambda low, _high: low):
+        with patch("lillm_eval.core.build_opener") as build_opener, patch(
+            "lillm_eval.core.time.sleep"
+        ) as sleep, patch("lillm_eval.core.random.uniform", side_effect=lambda low, _high: low):
             opener = build_opener.return_value
             opener.open.side_effect = [
                 URLError(TimeoutError("timed out")),
@@ -259,8 +259,8 @@ class JudgeRequestTests(unittest.TestCase):
             cancellation_event.set()
             return low
 
-        with patch("tinyllm_eval.core.build_opener") as build_opener, patch(
-            "tinyllm_eval.core.random.uniform", side_effect=signal_cancellation
+        with patch("lillm_eval.core.build_opener") as build_opener, patch(
+            "lillm_eval.core.random.uniform", side_effect=signal_cancellation
         ):
             opener = build_opener.return_value
             opener.open.side_effect = URLError(TimeoutError("timed out"))
@@ -287,8 +287,8 @@ class JudgeRequestTests(unittest.TestCase):
             {},
             io.BytesIO(b"invalid request"),
         )
-        with patch("tinyllm_eval.core.build_opener") as build_opener, patch(
-            "tinyllm_eval.core.time.sleep"
+        with patch("lillm_eval.core.build_opener") as build_opener, patch(
+            "lillm_eval.core.time.sleep"
         ) as sleep:
             opener = build_opener.return_value
             opener.open.side_effect = error
@@ -319,7 +319,7 @@ class JudgeRequestTests(unittest.TestCase):
             )
 
     def test_rejects_out_of_range_judge_score(self):
-        from tinyllm_eval.core import _parse_judge_response
+        from lillm_eval.core import _parse_judge_response
 
         response = {
             "factuality": 6,

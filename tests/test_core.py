@@ -1,6 +1,6 @@
 import unittest
 
-from tinyllm_eval.core import (
+from lillm_eval.core import (
     PROMPT_VERSION, SYSTEM_PROMPT, SYSTEM_PROMPT_V2, USER_PROMPT_TEMPLATE, sample_stream,
 )
 

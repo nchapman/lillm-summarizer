@@ -20,13 +20,13 @@ Means are followed by 95% bootstrap confidence intervals. Judge scores are on th
 
 | Candidate | ROUGE-1 | ROUGE-2 | ROUGE-L | Judge factuality | Judge overall | Unsupported-claim notes | Mean latency | `finish_reason=length` |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| Qwen3.5-0.8B | 0.315 [0.305, 0.325] | 0.077 [0.072, 0.083] | 0.172 [0.166, 0.179] | 1.81 [1.72, 1.91] | 1.80 [1.71, 1.90] | 1,148 | 2 |
-| Qwen3.5-2B | 0.330 [0.320, 0.340] | 0.092 [0.086, 0.098] | 0.185 [0.179, 0.192] | 2.57 [2.45, 2.69] | 2.58 [2.47, 2.69] | 721 | 1 |
-| MiniCPM5-1B | 0.327 [0.315, 0.339] | 0.095 [0.088, 0.104] | 0.196 [0.188, 0.204] | 2.52 [2.38, 2.66] | 2.44 [2.31, 2.56] | 617 | 2 |
-| LFM2.5-1.2B | 0.344 [0.333, 0.354] | 0.101 [0.094, 0.109] | 0.211 [0.203, 0.219] | 3.98 [3.86, 4.10] | 3.89 [3.79, 3.99] | 226 | 0 |
-| **Granite 4.0-1B** | **0.404 [0.392, 0.416]** | **0.156 [0.145, 0.167]** | **0.258 [0.248, 0.268]** | **4.53 [4.42, 4.63]** | **4.13 [4.04, 4.22]** | **87** | 0 |
-| Granite 4.0-350M | 0.376 [0.363, 0.390] | 0.149 [0.138, 0.160] | 0.245 [0.234, 0.256] | 3.77 [3.62, 3.92] | 3.33 [3.21, 3.44] | 220 | 11 |
-| GPT-6 Luna (hosted) | 0.375 [0.363, 0.386] | 0.123 [0.115, 0.132] | 0.229 [0.219, 0.239] | 4.96 [4.94, 4.98] | 4.91 [4.87, 4.94] | 9 | 0 |
+| Qwen3.5-0.8B | 0.315 [0.305, 0.325] | 0.077 [0.072, 0.083] | 0.172 [0.166, 0.179] | 1.81 [1.72, 1.91] | 1.80 [1.71, 1.90] | 1,148 | 0.714 s | 2 |
+| Qwen3.5-2B | 0.330 [0.320, 0.340] | 0.092 [0.086, 0.098] | 0.185 [0.179, 0.192] | 2.57 [2.45, 2.69] | 2.58 [2.47, 2.69] | 721 | 1.164 s | 1 |
+| MiniCPM5-1B | 0.327 [0.315, 0.339] | 0.095 [0.088, 0.104] | 0.196 [0.188, 0.204] | 2.52 [2.38, 2.66] | 2.44 [2.31, 2.56] | 617 | 0.426 s | 2 |
+| LFM2.5-1.2B | 0.344 [0.333, 0.354] | 0.101 [0.094, 0.109] | 0.211 [0.203, 0.219] | 3.98 [3.86, 4.10] | 3.89 [3.79, 3.99] | 226 | 0.469 s | 0 |
+| **Granite 4.0-1B** | **0.404 [0.392, 0.416]** | **0.156 [0.145, 0.167]** | **0.258 [0.248, 0.268]** | **4.53 [4.42, 4.63]** | **4.13 [4.04, 4.22]** | **87** | 0.725 s | 0 |
+| Granite 4.0-350M | 0.376 [0.363, 0.390] | 0.149 [0.138, 0.160] | 0.245 [0.234, 0.256] | 3.77 [3.62, 3.92] | 3.33 [3.21, 3.44] | 220 | 0.341 s | 11 |
+| GPT-6 Luna (hosted) | 0.375 [0.363, 0.386] | 0.123 [0.115, 0.132] | 0.229 [0.219, 0.239] | 4.96 [4.94, 4.98] | 4.91 [4.87, 4.94] | 9 | 1.906 s | 0 |
 
 The full set of judge means and intervals:
 
@@ -80,6 +80,6 @@ GPT-6 Luna generation usage reported `$0.037243` for 250 examples. The judge's s
 
 ## Artifacts and limits
 
-Predictions, judgments, per-run metadata, and ROUGE score files are preserved locally under `runs/confirmation250/` (git-ignored). All seven original judgment outputs and the additional 512-token Granite 350M judgment output contain 250 unique IDs matching their corresponding prediction IDs in input order and have complete run metadata. Granite 4.0-350M's GGUF is the Unsloth UD-Q4_K_XL file at the pinned revision above (SHA-256 `1fd597eb32557fabb17695eaeb4f367f286dc67d464b0f97c904d70373d067d3`); the original instruct model card is Apache-2.0. The frozen sample itself is tracked at `data/eval/cnn_dailymail_test_confirmation.jsonl`.
+Predictions, judgments, per-run metadata, and ROUGE score files are preserved locally under `runs/confirmation250/` (git-ignored). All seven original judgment outputs and the additional 512-token Granite 350M judgment output contain 250 unique IDs matching their corresponding prediction IDs in input order and have complete run metadata. Granite 4.0-350M's GGUF is the Unsloth UD-Q4_K_XL file at the pinned revision above (SHA-256 `1fd597eb32557fabb17695eaeb4f367f286dc67d464b0f97c904d70373d067d3`); the original instruct model card is Apache-2.0. The frozen sample is a local artifact at `data/eval/cnn_dailymail_test_confirmation.jsonl`; evaluation JSONL files are Git-ignored and are not distributed with the repository.
 
 This confirmation set is an additional generalization check, not a replacement for the 50-example pilot or a final broad benchmark. CNN/DailyMail has dataset-specific style and reference-summary biases; the sample is modest; local decoding settings differ by model recommendation; and judge outputs are automated. Granite 1B remains the strongest overall local LoRA baseline; Granite 350M is a compelling low-latency size point with close ROUGE, while its lower observed judge scores remain difficult to interpret: the 512-token rerun did not clearly raise its overall rating and still had eight cap hits. LFM2.5 remains a useful second judge-quality candidate. Do not treat these results as permission to train on the CNN/DailyMail test examples.

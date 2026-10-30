@@ -4,7 +4,7 @@
 
 The full native adapter produces coherent summaries. Its **F16 GGUF sidecar overflows on this GB10/CUDA build**: a captured MLP activation exceeds F16's maximum, and the down-projection LoRA A matmul introduces infinities that propagate to all logits. **Use a BF16 sidecar with the same Q4 base.** BF16 preserves the required exponent range in 16-bit storage; controlled spot checks and a fresh HTTP-server check work without merging, target removal, retraining, or external source changes. The earlier F32 recovery was a diagnostic, not the required deployment format. This is evidence about inference correctness, **not evidence of improved summarization quality**.
 
-The audit also found mistakes in our training harness and earlier claims: biased validation selection, an ignored revision pin, incorrect import order, and an overstated reload check. The stopped checkpoint is preserved; no training was resumed and no evaluation battery or hosted judging was run during the diagnosis. The subsequently authorized [epoch-1 end-to-end battery](../GRANITE_ADAPTER_RESULTS.md) is now complete, providing the quality reference for later checkpoints; it is not a final verdict on unfinished training.
+The audit also found mistakes in our training harness and earlier claims: biased validation selection, an ignored revision pin, incorrect import order, and an overstated reload check. The stopped checkpoint is preserved; no training was resumed and no evaluation battery or hosted judging was run during the diagnosis. The subsequently authorized [epoch-1 end-to-end battery](granite-epoch1-adapter.md) is now complete, providing the quality reference for later checkpoints; it is not a final verdict on unfinished training.
 
 ## Artifacts and scope
 

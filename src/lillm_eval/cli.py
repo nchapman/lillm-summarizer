@@ -472,7 +472,7 @@ def score_predictions(args: argparse.Namespace) -> None:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="tinyllm-eval")
+    parser = argparse.ArgumentParser(prog="lillm-summarizer")
     commands = parser.add_subparsers(dest="command", required=True)
 
     prepare = commands.add_parser("prepare-cnn-dm", help="sample the CNN/DailyMail 3.0.0 test split")

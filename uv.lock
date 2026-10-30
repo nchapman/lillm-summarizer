@@ -686,7 +686,7 @@ name = "exceptiongroup"
 version = "1.3.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "typing-extensions", marker = "(python_full_version < '3.13' and sys_platform != 'linux') or (python_full_version < '3.12' and sys_platform == 'linux')" },
+    { name = "typing-extensions", marker = "python_full_version < '3.11'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/50/79/66800aadf48771f6b62f7eb014e352e5d06856655206165d775e675a02c9/exceptiongroup-1.3.1.tar.gz", hash = "sha256:8b412432c6055b0b7d14c310000ae93352ed6754f70fa8f7c34141f91c4e3219", size = 30371, upload-time = "2025-11-21T23:01:54.787Z" }
 wheels = [
@@ -1030,6 +1030,59 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/16/1f/58a4d7ee466f81bc3c7337036380fc6d49de3afb7855d74f8121b1e89b32/json5-0.17.3.tar.gz", hash = "sha256:8d0278ad34ebaa9c3af76d9519274811830224a2d1cd5af156dbd067f461b8a4", size = 54234, upload-time = "2026-10-09T21:19:28.335Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/ae/39/e689b616c4279a821d5842a8a85c1874540f8d58e35028df93f2182120c2/json5-0.17.3-py3-none-any.whl", hash = "sha256:2c8b22a893c35cd6a3c5ccbf1dd1c7d02c25dc1b5897fea658f9bf08c2e05f9a", size = 34809, upload-time = "2026-10-09T21:19:27.357Z" },
+]
+
+[[package]]
+name = "lillm-summarizer"
+version = "0.1.0"
+source = { editable = "." }
+dependencies = [
+    { name = "datasets" },
+    { name = "rouge-score" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "pytest" },
+]
+train = [
+    { name = "accelerate", marker = "python_full_version == '3.12.*' and sys_platform == 'linux'" },
+    { name = "bitsandbytes", marker = "python_full_version == '3.12.*' and sys_platform == 'linux'" },
+    { name = "datasets", marker = "python_full_version == '3.12.*' and sys_platform == 'linux'" },
+    { name = "huggingface-hub", marker = "python_full_version == '3.12.*' and sys_platform == 'linux'" },
+    { name = "peft", marker = "python_full_version == '3.12.*' and sys_platform == 'linux'" },
+    { name = "torch", marker = "python_full_version == '3.12.*' and sys_platform == 'linux'" },
+    { name = "torchao", marker = "python_full_version == '3.12.*' and sys_platform == 'linux'" },
+    { name = "torchvision", marker = "python_full_version == '3.12.*' and sys_platform == 'linux'" },
+    { name = "transformers", marker = "python_full_version == '3.12.*' and sys_platform == 'linux'" },
+    { name = "trl", marker = "python_full_version == '3.12.*' and sys_platform == 'linux'" },
+    { name = "unsloth", marker = "python_full_version == '3.12.*' and sys_platform == 'linux'" },
+    { name = "unsloth-zoo", marker = "python_full_version == '3.12.*' and sys_platform == 'linux'" },
+    { name = "xformers", version = "0.0.35", source = { registry = "https://download.pytorch.org/whl/cu130" }, marker = "python_full_version == '3.12.*' and platform_machine == 'x86_64' and sys_platform == 'linux'" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "datasets", specifier = ">=3.0" },
+    { name = "rouge-score", specifier = ">=0.1.2" },
+]
+
+[package.metadata.requires-dev]
+dev = [{ name = "pytest", specifier = ">=8" }]
+train = [
+    { name = "accelerate", marker = "python_full_version == '3.12.*' and sys_platform == 'linux'", specifier = "==1.14.0" },
+    { name = "bitsandbytes", marker = "python_full_version == '3.12.*' and sys_platform == 'linux'", specifier = "==0.49.2" },
+    { name = "datasets", marker = "python_full_version == '3.12.*' and sys_platform == 'linux'", specifier = "==4.8.5" },
+    { name = "huggingface-hub", marker = "python_full_version == '3.12.*' and sys_platform == 'linux'", specifier = "==0.36.2" },
+    { name = "peft", marker = "python_full_version == '3.12.*' and sys_platform == 'linux'", specifier = "==0.19.1" },
+    { name = "torch", marker = "python_full_version == '3.12.*' and sys_platform == 'linux'", specifier = "==2.12.1", index = "https://download.pytorch.org/whl/cu130" },
+    { name = "torchao", marker = "python_full_version == '3.12.*' and sys_platform == 'linux'", specifier = "==0.18.0" },
+    { name = "torchvision", marker = "python_full_version == '3.12.*' and sys_platform == 'linux'", specifier = "==0.27.1", index = "https://download.pytorch.org/whl/cu130" },
+    { name = "transformers", marker = "python_full_version == '3.12.*' and sys_platform == 'linux'", specifier = "==4.57.6" },
+    { name = "trl", marker = "python_full_version == '3.12.*' and sys_platform == 'linux'", specifier = "==1.15.0" },
+    { name = "unsloth", marker = "python_full_version == '3.12.*' and sys_platform == 'linux'", specifier = "==2026.10.10" },
+    { name = "unsloth-zoo", marker = "python_full_version == '3.12.*' and sys_platform == 'linux'", specifier = "==2026.10.10" },
+    { name = "xformers", marker = "python_full_version == '3.12.*' and platform_machine == 'x86_64' and sys_platform == 'linux'", specifier = "==0.0.35", index = "https://download.pytorch.org/whl/cu130" },
 ]
 
 [[package]]
@@ -3039,59 +3092,6 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/83/d3/803453b36afefb7c2bb238361cd4ae6125a569b4db67cd9e79846ba2d68c/sympy-1.14.0.tar.gz", hash = "sha256:d3d3fe8df1e5a0b42f0e7bdf50541697dbe7d23746e894990c030e2b05e72517", size = 7793921, upload-time = "2025-04-27T18:05:01.611Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/a2/09/77d55d46fd61b4a135c444fc97158ef34a095e5681d0a6c10b75bf356191/sympy-1.14.0-py3-none-any.whl", hash = "sha256:e091cc3e99d2141a0ba2847328f5479b05d94a6635cb96148ccb3f34671bd8f5", size = 6299353, upload-time = "2025-04-27T18:04:59.103Z" },
-]
-
-[[package]]
-name = "tinyllm-summarization"
-version = "0.1.0"
-source = { editable = "." }
-dependencies = [
-    { name = "datasets" },
-    { name = "rouge-score" },
-]
-
-[package.dev-dependencies]
-dev = [
-    { name = "pytest" },
-]
-train = [
-    { name = "accelerate", marker = "python_full_version == '3.12.*' and sys_platform == 'linux'" },
-    { name = "bitsandbytes", marker = "python_full_version == '3.12.*' and sys_platform == 'linux'" },
-    { name = "datasets", marker = "python_full_version == '3.12.*' and sys_platform == 'linux'" },
-    { name = "huggingface-hub", marker = "python_full_version == '3.12.*' and sys_platform == 'linux'" },
-    { name = "peft", marker = "python_full_version == '3.12.*' and sys_platform == 'linux'" },
-    { name = "torch", marker = "python_full_version == '3.12.*' and sys_platform == 'linux'" },
-    { name = "torchao", marker = "python_full_version == '3.12.*' and sys_platform == 'linux'" },
-    { name = "torchvision", marker = "python_full_version == '3.12.*' and sys_platform == 'linux'" },
-    { name = "transformers", marker = "python_full_version == '3.12.*' and sys_platform == 'linux'" },
-    { name = "trl", marker = "python_full_version == '3.12.*' and sys_platform == 'linux'" },
-    { name = "unsloth", marker = "python_full_version == '3.12.*' and sys_platform == 'linux'" },
-    { name = "unsloth-zoo", marker = "python_full_version == '3.12.*' and sys_platform == 'linux'" },
-    { name = "xformers", version = "0.0.35", source = { registry = "https://download.pytorch.org/whl/cu130" }, marker = "python_full_version == '3.12.*' and platform_machine == 'x86_64' and sys_platform == 'linux'" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "datasets", specifier = ">=3.0" },
-    { name = "rouge-score", specifier = ">=0.1.2" },
-]
-
-[package.metadata.requires-dev]
-dev = [{ name = "pytest", specifier = ">=8" }]
-train = [
-    { name = "accelerate", marker = "python_full_version == '3.12.*' and sys_platform == 'linux'", specifier = "==1.14.0" },
-    { name = "bitsandbytes", marker = "python_full_version == '3.12.*' and sys_platform == 'linux'", specifier = "==0.49.2" },
-    { name = "datasets", marker = "python_full_version == '3.12.*' and sys_platform == 'linux'", specifier = "==4.8.5" },
-    { name = "huggingface-hub", marker = "python_full_version == '3.12.*' and sys_platform == 'linux'", specifier = "==0.36.2" },
-    { name = "peft", marker = "python_full_version == '3.12.*' and sys_platform == 'linux'", specifier = "==0.19.1" },
-    { name = "torch", marker = "python_full_version == '3.12.*' and sys_platform == 'linux'", specifier = "==2.12.1", index = "https://download.pytorch.org/whl/cu130" },
-    { name = "torchao", marker = "python_full_version == '3.12.*' and sys_platform == 'linux'", specifier = "==0.18.0" },
-    { name = "torchvision", marker = "python_full_version == '3.12.*' and sys_platform == 'linux'", specifier = "==0.27.1", index = "https://download.pytorch.org/whl/cu130" },
-    { name = "transformers", marker = "python_full_version == '3.12.*' and sys_platform == 'linux'", specifier = "==4.57.6" },
-    { name = "trl", marker = "python_full_version == '3.12.*' and sys_platform == 'linux'", specifier = "==1.15.0" },
-    { name = "unsloth", marker = "python_full_version == '3.12.*' and sys_platform == 'linux'", specifier = "==2026.10.10" },
-    { name = "unsloth-zoo", marker = "python_full_version == '3.12.*' and sys_platform == 'linux'", specifier = "==2026.10.10" },
-    { name = "xformers", marker = "python_full_version == '3.12.*' and platform_machine == 'x86_64' and sys_platform == 'linux'", specifier = "==0.0.35", index = "https://download.pytorch.org/whl/cu130" },
 ]
 
 [[package]]

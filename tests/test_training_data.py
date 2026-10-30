@@ -13,9 +13,9 @@ try:
 except ImportError:
     HAVE_DATA_EXTRA = False
 
-from tinyllm_eval.cli import prepare_smoltalk
-from tinyllm_eval.core import PROMPT_VERSION, SYSTEM_PROMPT
-from tinyllm_eval.training_data import (
+from lillm_eval.cli import prepare_smoltalk
+from lillm_eval.core import PROMPT_VERSION, SYSTEM_PROMPT
+from lillm_eval.training_data import (
     build_eval_ngram_set,
     classify_instruction,
     containment,
@@ -152,6 +152,23 @@ class StratifiedSubsetTests(unittest.TestCase):
         self.assertEqual(
             sum(s["train"] + s["val"] for s in report["strata"].values()),
             240,
+        )
+
+    def test_near_full_split_returns_exact_requested_counts(self):
+        rows = (
+            self._rows(100, "one_line", "short")
+            + self._rows(50, "three_sentence", "medium")
+            + self._rows(50, "other", "long")
+        )
+
+        train, val, report = stratified_subset(rows, train_count=180, val_count=10, seed=1)
+
+        self.assertEqual(len(train), 180)
+        self.assertEqual(len(val), 10)
+        self.assertEqual(report["train_rows"], 180)
+        self.assertEqual(report["val_rows"], 10)
+        self.assertFalse(
+            {row["id"] for row in train} & {row["id"] for row in val}
         )
 
     def test_rejects_counts_beyond_available_rows(self):

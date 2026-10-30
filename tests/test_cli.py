@@ -8,7 +8,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from tinyllm_eval.cli import (
+from lillm_eval.cli import (
     _resolve_inference_auth,
     build_parser,
     judge_predictions,
@@ -31,7 +31,7 @@ class InferenceEndpointTests(unittest.TestCase):
             base_url="https://openrouter.ai/api/v1",
             api_key_env="OPENROUTER_API_KEY",
         )
-        with patch("tinyllm_eval.cli.load_project_env_file"), patch.dict(
+        with patch("lillm_eval.cli.load_project_env_file"), patch.dict(
             "os.environ", {"OPENROUTER_API_KEY": "test-key"}, clear=True
         ):
             api_key, is_remote = _resolve_inference_auth(args)
@@ -105,8 +105,8 @@ class JudgeCliTests(unittest.TestCase):
                 retry_backoff_seconds=0,
                 concurrency=3,
             )
-            with patch("tinyllm_eval.cli.load_project_env_file"), patch(
-                "tinyllm_eval.cli.request_judgment", side_effect=fake_request
+            with patch("lillm_eval.cli.load_project_env_file"), patch(
+                "lillm_eval.cli.request_judgment", side_effect=fake_request
             ), patch.dict(os.environ, {"OPENROUTER_API_KEY": "test-key"}, clear=True):
                 judge_predictions(args)
 
@@ -148,7 +148,7 @@ class PrepareDatasetTests(unittest.TestCase):
                 model="test-judge",
                 timeout=10,
             )
-            with patch("tinyllm_eval.cli.load_project_env_file"), patch.dict("os.environ", {}, clear=True):
+            with patch("lillm_eval.cli.load_project_env_file"), patch.dict("os.environ", {}, clear=True):
                 with self.assertRaisesRegex(RuntimeError, "OPENROUTER_API_KEY"):
                     judge_predictions(args)
 

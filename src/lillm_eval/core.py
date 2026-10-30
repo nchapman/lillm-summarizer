@@ -145,7 +145,7 @@ def request_judgment(
         headers={
             "Content-Type": "application/json",
             "Authorization": f"Bearer {api_key}",
-            "HTTP-Referer": "https://github.com/nchapman/tinyllm-summarization",
+            "HTTP-Referer": "https://github.com/nchapman/lillm-summarizer",
             "X-Title": "TinyLLM Summarization Evaluation",
         },
         method="POST",
