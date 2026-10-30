@@ -2,7 +2,7 @@
 
 **How well do small language models summarize out of the box, and how much can task-specific training help?** This project compares small instruction-tuned language models under practical inference settings, trains LoRA adapters, audits the supervision path, and measures factuality, coverage, relevance, concision, readability, overall quality, and reference overlap.
 
-> **Bottom line:** The six local rows in **“Results: models without adapters”** and the four base/adapter pairs in **“Aligned comparison”** use the **same 250 CNN/DailyMail articles** (SHA-256 `047f62c2…1377e75e`), `summary-v3`, a 1,024-token cap, effective greedy decoding, and one pinned judge. Read them together for base-versus-adapter results; four base models appear in both tables. GPT-6 Luna is separate: OpenRouter does not expose the same sampler controls, and its attempted aligned rerun timed out, so its earlier score remains historical only. Adapter results are mixed, and making response behavior more consistent remains a goal, not a demonstrated result.
+> **Bottom line:** Six local base models and four adapters were evaluated on the same 250 articles with `summary-v3`, a 1,024-token cap, greedy decoding, and one pinned judge. Granite 4.0-1B led the local base models; adapter effects varied by model. These results do not establish response-style normalization.
 
 ## Results: models without adapters
 
