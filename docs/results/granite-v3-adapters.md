@@ -37,7 +37,7 @@ The 1B adapter's ROUGE and concision gains coexist with lower coverage and a sma
 - **Adapter method:** LoRA, rank 16, alpha 16, dropout 0, no bias training, attached to language attention/MLP projections. The shareable files are PEFT adapter weights/configuration, not merged base models.
 - **1B artifact:** mixed-data `granite4-1b-summary-v3-8k-s42-early512/checkpoints/checkpoint-128`.
 - **350M artifact:** mixed-data lower-learning-rate `granite4-350m-summary-v3-8k-s42-lr5e5/checkpoints/checkpoint-4456`.
-- **Data:** public SmolTalk2 summarization examples combined with the author's private web-summarization set. The private records and derived data files are not included in the adapter repositories.
+- **Data:** aligned source-document/target-summary examples. The public component came from the `HuggingFaceTB/smoltalk2` SFT no-think summarization split, with both one-line and three-sentence summary styles; the mixed pool also included the author's private web-document/summary pairs. These varied targets suit the `summary-v3` instruction to keep simple material brief and add detail when the source warrants it, rather than forcing every model to emit a fixed-length summary. The private records and derived data files are not included in the adapter repositories.
 - **Evaluation representation:** Q4_K_XL GGUF base plus an independently exported BF16 GGUF adapter sidecar. These measurements do not directly establish native-BF16 PEFT inference quality.
 
 ## Evaluation protocol and limitations

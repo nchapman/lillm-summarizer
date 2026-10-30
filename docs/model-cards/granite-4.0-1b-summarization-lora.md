@@ -32,7 +32,9 @@ The outcome is **mixed**: reference overlap and concision increased; coverage de
 
 ## Training and data
 
-LoRA rank 16, alpha 16, dropout 0; evaluated artifact `granite4-1b-summary-v3-8k-s42-early512/checkpoints/checkpoint-128`. Training combined public SmolTalk2 summarization examples with the author's private web-summarization data. Private records and derived training files are not included here. Training used one seed; the adapter is not an exhaustive checkpoint or seed search.
+LoRA rank 16, alpha 16, dropout 0; evaluated artifact `granite4-1b-summary-v3-8k-s42-early512/checkpoints/checkpoint-128`. The training examples pair source documents with target summaries. The public component came from the `HuggingFaceTB/smoltalk2` SFT summarization split, which includes one-line and three-sentence summary styles; the mixed runs also used the author's private web-document/summary pairs.
+
+The adaptation goal is to reinforce a shared summarization response contract—objective plain prose, brief when the source is simple and more detailed when it warrants it—across model sizes and families. This goal is not yet established as a cross-model normalization result: no formal style-variance metric was run, and the two Granite adapters show mixed, model-dependent quality outcomes. Private records and derived training files are not included here. Training used one seed; the adapter is not an exhaustive checkpoint or seed search.
 
 ## Use
 

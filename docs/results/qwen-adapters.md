@@ -37,7 +37,7 @@ The lowest validation loss occurred at checkpoint 512 in both runs. It was saved
 
 ### Data and supervision
 
-Both models used the same frozen summarization documents, targets, and train/validation assignments. The pool combined public `HuggingFaceTB/smoltalk2` summarization data with a private summarization component. Preparation included document deduplication, evaluation-overlap checks, and target-quality review. Model-specific preparation retained the frozen rows and original document/target text, with **no context truncation or target shortening**.
+Both models used the same frozen summarization documents, targets, and train/validation assignments. The public component came from the `HuggingFaceTB/smoltalk2` SFT no-think summarization split, with examples labeled for one-line and three-sentence summaries; the mixed pool also included the author's private web-document/summary pairs. Preparation included document deduplication, evaluation-overlap checks, and target-quality review. Model-specific preparation retained the frozen rows and original document/target text, with **no context truncation or target shortening**. The varied target lengths provide examples of both concise and more detailed summaries; the shared `summary-v3` task instruction asks for detail in proportion to the source rather than enforcing one length.
 
 Native Qwen control-token literals were escaped only in the rendered user-document view; stored source documents and assistant targets remained unchanged. The native chat template, disabled-thinking prefix, assistant-only loss mask, terminal EOS/newline, and actual trainer/collator labels were checked across the prepared data before optimization. Prompt and padding tokens were excluded from supervision.
 

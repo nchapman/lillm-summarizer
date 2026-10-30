@@ -31,6 +31,12 @@ Four PEFT LoRA adapters and model cards are published on Hugging Face:
 - [Granite 4.0-1B summarization LoRA](https://huggingface.co/nchapman/granite-4.0-1b-summarization-lora) · [card source](docs/model-cards/granite-4.0-1b-summarization-lora.md)
 - [Granite 4.0-350M summarization LoRA](https://huggingface.co/nchapman/granite-4.0-350m-summarization-lora) · [card source](docs/model-cards/granite-4.0-350m-summarization-lora.md)
 
+### What the adapters are trying to learn
+
+Each adapter adds a small set of LoRA weights to its base model, trained on **document → summary** examples rather than updating the full model. The shared public component is the `HuggingFaceTB/smoltalk2` SFT summarization split, which includes both one-line and three-sentence summary examples. The published mixed-data runs also used the author's private web-summarization pairs. Training examples were prepared for summarization, with the source document as input and the summary as the target; the evaluation articles were kept separate from training.
+
+The goal is to strengthen source-grounded summarization and bring different small models toward a more consistent response contract: objective plain prose, concise for simple material, and more detailed when the source warrants it. “Normalize” here means a shared task and style expectation—not identical summaries or a forced common length. We have not yet established cross-model consistency with a formal style-variance metric. Qwen's measured gains and Granite's mixed findings below show that this is an aim under investigation, not a result every adapter achieved.
+
 ### Qwen3.5: measured improvement
 
 On the larger 250-article battery, both Qwen adapters improved their own base models under matched Q4 inference, a fresh shared prompt (`summary-v3`), and the same generation settings. Ratings are means on the 1–5 judge scale. The experiment used one training seed and bounded early-training checkpoints; public and private training data were mixed.

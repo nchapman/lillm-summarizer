@@ -32,7 +32,9 @@ These are promising but bounded comparative results: one training seed, one sele
 
 ## Training and data
 
-LoRA rank 16, alpha 16, dropout 0; evaluated checkpoint 128 from a 512-update run. Training combined public HuggingFaceTB/smoltalk2 summarization examples with the author's private web-summarization data. Private records, derived training files, and the training runner are not included in this repository.
+LoRA rank 16, alpha 16, dropout 0; evaluated checkpoint 128 from a 512-update run. The training examples pair a source document with its target summary. The public component came from the `HuggingFaceTB/smoltalk2` SFT summarization split, which includes one-line and three-sentence summary styles; the mixed runs also used the author's private web-document/summary pairs. Both Qwen sizes used the same frozen prepared pool and train/validation assignments.
+
+The adaptation goal is to reinforce a shared summarization response contract—objective plain prose, brief when the source is simple and more detailed when it warrants it—across different model sizes. This is an intended direction, not a proven normalization result: no formal cross-model style-variance metric was run, and output lengths and quality changes are model-dependent. Private records, derived training files, and the training runner are not included in this repository.
 
 ## Use
 
