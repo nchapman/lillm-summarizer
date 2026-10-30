@@ -2,25 +2,24 @@
 
 **How well do small language models summarize out of the box, and how much can task-specific training help?** This project compares small instruction-tuned language models under practical inference settings, trains LoRA adapters, audits the supervision path, and measures factuality, coverage, relevance, concision, readability, overall quality, and reference overlap.
 
-> **Bottom line:** The seven-model **“Results: models without adapters”** table below uses `summary-v1`, a 256-token cap, and model-specific decoding; Granite 4.0-1B was its strongest untuned local model. The four-model **“Aligned comparison”** adapter table later in this README uses the **same 250 CNN/DailyMail articles** (SHA-256 `047f62c2…1377e75e`), but uses `summary-v3`, a 1,024-token cap, common greedy decoding, and one pinned judge. Keep those tables separate rather than reading their scores as one leaderboard. In the aligned adapter comparison, Qwen3.5-0.8B improved on several judged measures, Qwen3.5-2B's overall-quality change was inconclusive, Granite 4.0-1B showed mixed results, and Granite 4.0-350M declined on several measures. Making response behavior more consistent is a goal, not a demonstrated result.
+> **Bottom line:** The six local rows in **“Results: models without adapters”** and the four base/adapter pairs in **“Aligned comparison”** use the **same 250 CNN/DailyMail articles** (SHA-256 `047f62c2…1377e75e`), `summary-v3`, a 1,024-token cap, effective greedy decoding, and one pinned judge. Read them together for base-versus-adapter results; four base models appear in both tables. GPT-6 Luna is separate: OpenRouter does not expose the same sampler controls, and its attempted aligned rerun timed out, so its earlier score remains historical only. Adapter results are mixed, and making response behavior more consistent remains a goal, not a demonstrated result.
 
 ## Results: models without adapters
 
-The table below reports the 250-example CNN/DailyMail test-set comparison. Local models used quantized GGUFs with model-recommended sampling; all used the same historical prompt and 256-token output cap. GPT-6 Luna is a hosted control, not part of the local small-model cohort. Judge ratings are means on a 1–5 scale; ROUGE is reference overlap, not factuality.
+The six local models below were evaluated on the same frozen 250-example CNN/DailyMail test sample as the adapter comparison, with the `summary-v3` prompt, a 1,024-token output ceiling, temperature 0 (greedy decoding), and the same pinned judge. Judge ratings are means on a 1–5 scale; ROUGE is reference overlap, not factuality. The hosted GPT-6 Luna control is not included in this aligned local table; its earlier, differently configured result is retained in the historical report.
 
-| Model | ROUGE-1 | ROUGE-2 | ROUGE-L | Factuality | Overall quality | Mean latency |
+| Local base model | ROUGE-1 | ROUGE-2 | ROUGE-L | Factuality | Overall quality | Mean latency |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| Qwen3.5-0.8B | 0.315 | 0.077 | 0.172 | 1.81 | 1.80 | 0.714 s |
-| Qwen3.5-2B | 0.330 | 0.092 | 0.185 | 2.57 | 2.58 | 1.164 s |
-| MiniCPM5-1B | 0.327 | 0.095 | 0.196 | 2.52 | 2.44 | 0.426 s |
-| LFM2.5-1.2B | 0.344 | 0.101 | 0.211 | 3.98 | 3.89 | 0.469 s |
-| **Granite 4.0-1B** | **0.404** | 0.156 | **0.258** | **4.53** | **4.13** | 0.725 s |
-| Granite 4.0-350M | 0.376 | 0.149 | 0.245 | 3.77 | 3.33 | **0.341 s** |
-| GPT-6 Luna (hosted) | 0.375 | 0.123 | 0.229 | 4.96 | 4.91 | 1.906 s |
+| Qwen3.5-0.8B | 0.220 | 0.086 | 0.140 | 3.30 | 3.18 | 1.688 s |
+| Qwen3.5-2B | 0.217 | 0.086 | 0.137 | 3.58 | 3.55 | 3.182 s |
+| MiniCPM5-1B | 0.199 | 0.074 | 0.130 | 2.99 | 2.54 | 1.959 s |
+| LFM2.5-1.2B | 0.293 | 0.091 | 0.178 | 3.66 | 3.52 | 0.821 s |
+| **Granite 4.0-1B** | **0.322** | **0.130** | **0.206** | **4.30** | **4.04** | 1.437 s |
+| Granite 4.0-350M | 0.308 | 0.126 | 0.204 | 3.64 | 3.15 | **0.649 s** |
 
-Granite 4.0-1B led the local cohort on ROUGE and judge factuality/overall quality. Granite 4.0-350M was the fastest local model, with close ROUGE but lower judged quality and 11/250 outputs stopping at the token cap. Judge ratings are automated, and the high hosted-control scores show a ceiling effect. The comparison is a modest sample, not a universal model ranking.
+Granite 4.0-1B led the local cohort on ROUGE and mean factuality/overall quality. Granite 4.0-350M was the fastest local model and had 11/250 outputs stop at the token cap; MiniCPM5 had 58 cap stops. Judge ratings are automated, and latency is specific to this host. This is a modest sample, not a universal model ranking.
 
-Details, full confidence intervals, and the 350M cap sensitivity experiment: [baseline confirmation results](docs/results/baseline-confirmation.md). The historical 50-example pilot and Q8 setup are not part of the final comparison and are not included.
+Details, all six judge dimensions, confidence intervals, and protocol notes: [aligned local baseline comparison](docs/results/aligned-baseline-comparison.md). The earlier seven-model `summary-v1`/256-token comparison, hosted-control score, and cap-sensitivity experiment remain archived as [historical baseline results](docs/results/baseline-confirmation.md).
 
 ## Results: with our adapters
 
