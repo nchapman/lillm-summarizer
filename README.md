@@ -1,8 +1,28 @@
 # Tiny-model summarization evaluation
 
-This repo starts with **English news summarization**. Evaluation samples are drawn from the CNN/DailyMail 3.0.0 **test split** and are never training data. The original 50-example pilot is retained as a stable pipeline/baseline set; a separate 250-example confirmation set is used to check whether its comparisons generalize. Preserve each generated file and use the same examples for every model. The repo ignores downloaded data, model files, and run outputs.
+**How well do small language models summarize out of the box, and can task-specific training make them better?** This project compares those two questions separately, starting with English news. The aim is to measure useful improvements and describe shortcomings—not certify a model for deployment.
 
-See [PLAN.md](PLAN.md) for the broader benchmark and LoRA phases, [BASELINE_RESULTS.md](BASELINE_RESULTS.md) for the 50-example Q4 pilot, and [CONFIRMATION_RESULTS.md](CONFIRMATION_RESULTS.md) for the disjoint 250-example confirmation comparison.
+Evaluation samples come from the CNN/DailyMail 3.0.0 **test split** and are never training data. A fixed 50-example pilot and disjoint 250-example larger battery are reused for matched comparisons. These sets are now exposed; later experiments do not treat them as fresh sealed confirmation data. Downloaded data, model files, private training material, and generated run outputs remain untracked.
+
+## Findings
+
+The latest [Qwen3.5 training comparison](QWEN_ADAPTER_RESULTS.md) found improvements in **both** models, using fresh base-versus-adapter outputs under identical settings within each pair:
+
+| Model | Factuality: base → trained | Overall judge quality: base → trained | Mean summary words: base → trained |
+| --- | ---: | ---: | ---: |
+| Qwen3.5-0.8B | 1.596 → **1.976** | 1.600 → **1.924** | 285.2 → **134.3** |
+| Qwen3.5-2B | 1.948 → **2.448** | 1.956 → **2.336** | 329.1 → **157.0** |
+
+These are automated 1–5 judge scores on the 250-article battery. Both adapters improved factuality, relevance, concision, overall quality, and reference overlap; coverage was roughly unchanged. Factual errors and occasional repetition remain. The report explains the training checks, data limitations, paired confidence intervals, and five documented judge-only repairs.
+
+Other reports preserve earlier experiments rather than forming one interchangeable leaderboard:
+
+- [QWEN_ADAPTER_RESULTS.md](QWEN_ADAPTER_RESULTS.md): current Qwen base-versus-trained results, `summary-v3`, 1,024-token output allowance.
+- [BASELINE_RESULTS.md](BASELINE_RESULTS.md) and [CONFIRMATION_RESULTS.md](CONFIRMATION_RESULTS.md): original multi-model Q4 comparisons under the earlier prompt/budget.
+- [GRANITE_ADAPTER_RESULTS.md](GRANITE_ADAPTER_RESULTS.md): Granite epoch-1 training milestone and measured trade-offs under `summary-v2`.
+- [PLAN.md](PLAN.md): broader research plan and model shortlist.
+
+The general evaluation harness is in this checkout. Some experiment-specific orchestration, including the Qwen training environment, is still local-only; the Qwen report states those reproducibility limits. Organizing those entry points is the next cleanup pass.
 
 ## Environment
 
@@ -21,6 +41,8 @@ uv installs the pinned Python if needed and creates an isolated `.venv`; no acti
 ### GPU training setup (local or remote Linux)
 
 The `train` dependency group pins the previously verified Unsloth/TRL/PEFT/Transformers stack and CUDA 13.0 Torch/torchvision. The explicit official PyTorch CUDA index also supplies xFormers on x86_64; ARM64 does not require xFormers. Training uses Python 3.12, Linux x86_64 or ARM64, an NVIDIA driver compatible with CUDA 13.0, and a BF16-capable GPU. The pod's preinstalled Torch is not reused.
+
+This root training environment is the **Granite** stack (Transformers 4.57.6). The [Qwen experiment](QWEN_ADAPTER_RESULTS.md) used a separate Transformers 5.2.0 environment, which is not yet packaged in the public checkout; the commands below are not a Qwen reproduction recipe.
 
 From a code-only checkout on the GPU machine:
 
