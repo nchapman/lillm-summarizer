@@ -18,17 +18,19 @@ An exploratory rank-16 LoRA adapter for English web-page summarization, trained 
 
 ## Evaluation snapshot
 
-Matched Q4-base/BF16-sidecar evaluation on the 250-article CNN/DailyMail confirmation set, using the shared `summary-v3` instruction:
+Fresh aligned 250-article CNN/DailyMail comparison using Q4 base inference, a BF16 adapter sidecar, common greedy `summary-v3` generation, and the same pinned judge used for all four base/adapter pairs:
 
-| Metric | Base | Base + adapter | Change |
+| Metric | Base | Base + adapter | Difference [95% paired CI] |
 | --- | ---: | ---: | ---: |
-| Factuality (judge, 1–5) | 3.620 | 2.744 | -0.876 (95% paired CI: -1.044 to -0.712) |
-| Coverage (judge, 1–5) | 3.256 | 3.296 | +0.040 (95% paired CI: -0.060 to +0.140) |
-| Overall quality (judge, 1–5) | 3.124 | 2.736 | -0.388 (95% paired CI: -0.520 to -0.252) |
-| ROUGE-1 | 0.3083 | 0.3044 | -0.0040 (95% paired CI: -0.0140 to +0.0069) |
-| Mean words | 179.4 | 163.8 | -15.6 |
+| Factuality (judge, 1–5) | 3.636 | 2.756 | -0.880 [-1.044, -0.712] |
+| Relevance (judge, 1–5) | 3.836 | 3.548 | -0.288 [-0.396, -0.176] |
+| Readability (judge, 1–5) | 3.712 | 3.508 | -0.204 [-0.332, -0.064] |
+| Overall quality (judge, 1–5) | 3.148 | 2.736 | -0.412 [-0.548, -0.276] |
+| ROUGE-1 | 0.3083 | 0.3044 | -0.0040 [-0.0140, +0.0069] |
+| Mean words | 179.4 | 163.8 | -15.6 [-37.3, +4.1] |
+| 1,024-token cap stops | 11 | 3 | -8 |
 
-The outcome is **mixed across metrics and guardrails**: the adapter produced fewer cap/length-stop and automatic degeneration flags than its base, while factuality, relevance, readability, and overall judge scores were lower in this comparison. It did not pass the project's automatic quality-acceptance policy. It is shared for experimentation, not as a quality upgrade or deployment recommendation. Full paired results and limitations are documented in Lillm Summarizer at `docs/results/granite-v3-adapters.md`.
+The result is **mixed across metrics**: cap stops decreased, but factuality, relevance, readability, and overall quality were lower; reference-overlap changes were small. It is shared for experimentation, not as a quality upgrade or deployment recommendation. Full dimensions, protocol, intervals, and limitations: `docs/results/aligned-adapter-comparison.md` in the Lillm Summarizer repository. This aligned result uses a common pinned judge and supersedes the earlier Granite snapshot's mutable judge alias.
 
 ## Training and data
 

@@ -18,17 +18,19 @@ An experimental rank-16 LoRA adapter for English web-page summarization, trained
 
 ## Evaluation snapshot
 
-On a matched 250-article CNN/DailyMail test comparison using Q4 base inference, a BF16 adapter sidecar, and the shared `summary-v3` prompt:
+Fresh aligned 250-article CNN/DailyMail comparison using Q4 base inference, a BF16 adapter sidecar, common greedy `summary-v3` generation, and the same pinned judge used for all four base/adapter pairs:
 
-| Metric | Base | Base + adapter | Change |
+| Metric | Base | Base + adapter | Difference [95% paired CI] |
 | --- | ---: | ---: | ---: |
-| Factuality (judge, 1–5) | 1.948 | 2.448 | +0.500 |
-| Overall quality (judge, 1–5) | 1.956 | 2.336 | +0.380 |
-| Coverage (judge, 1–5) | 2.864 | 2.900 | +0.036 |
-| ROUGE-1 | 0.1977 | 0.3010 | +0.1033 |
-| Mean words | 329.1 | 157.0 | -172.2 |
+| Factuality (judge, 1–5) | 3.576 | 4.520 | +0.944 [+0.808, +1.076] |
+| Coverage (judge, 1–5) | 4.148 | 4.024 | -0.124 [-0.244, -0.004] |
+| Readability (judge, 1–5) | 4.204 | 3.992 | -0.212 [-0.352, -0.080] |
+| Overall quality (judge, 1–5) | 3.548 | 3.596 | +0.048 [-0.096, +0.184] |
+| ROUGE-L | 0.1372 | 0.1599 | +0.0226 [+0.0137, +0.0316] |
+| Mean words | 310.6 | 342.4 | +31.9 [+3.1, +61.0] |
+| 1,024-token cap stops | 3 | 29 | +26 |
 
-These are promising but bounded comparative results: one training seed, one selected early checkpoint, one public news dataset, and one automated judge. Occasional factual errors and repetition remain. The analysis guardrail marked the candidate **not promoted** because of an automatic degeneration flag and one output reaching the length limit; these results do not qualify the adapter as deployment-ready. The complete protocol and paired intervals are documented in Lillm Summarizer at `docs/results/qwen-adapters.md`.
+Factuality, relevance, and reference-overlap scores improved in this sample, but coverage and readability declined; overall quality was inconclusive. Cap stops increased from 3 to 29. This is a mixed result—not an unconditional quality or deployment claim—and is limited to one training seed/checkpoint and an exposed public news set. Full dimensions, protocol, intervals, and limitations: `docs/results/aligned-adapter-comparison.md` in the Lillm Summarizer repository. This aligned result supersedes the earlier Qwen evaluation snapshot, which used different decoding settings.
 
 ## Training and data
 

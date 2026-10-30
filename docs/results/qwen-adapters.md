@@ -1,5 +1,7 @@
 # Qwen3.5: out-of-the-box summaries versus LoRA training
 
+> **Historical evaluation report.** Its Qwen scores used stochastic decoding and should not be combined with the historical seven-model baseline or treated as the current aligned comparison. The current shared-greedy base/adapter results for all four models are in [aligned-adapter-comparison.md](aligned-adapter-comparison.md); training and supervision details below remain useful context.
+
 ## Finding: training improved both small models
 
 This experiment asks **how well small models summarize out of the box, and whether task-specific training makes them better**. It is a comparative research result, not a deployment qualification.

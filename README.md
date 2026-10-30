@@ -2,7 +2,7 @@
 
 **How well do small language models summarize out of the box, and how much can task-specific training help?** This project compares small instruction-tuned language models under practical inference settings, trains LoRA adapters, audits the supervision path, and measures factuality, coverage, relevance, concision, readability, overall quality, and reference overlap.
 
-> **Bottom line:** the strongest untuned local model in the original multi-model comparison was Granite 4.0-1B. Qwen3.5-0.8B and Qwen3.5-2B both improved on the matched Qwen adapter experiment. Granite's reported epoch-1 adapter, by contrast, did not improve quality under its separate earlier evaluation setup. These experiments use different prompts, budgets, datasets, and training data; do not combine them into one leaderboard.
+> **Bottom line:** the original seven-model baseline and the adapter experiments use the **same frozen 250 CNN/DailyMail confirmation articles** (SHA-256 `047f62c2…1377e75e`), so the earlier warning about different evaluation datasets was inaccurate. Their protocols did differ: the historical baseline used `summary-v1`, a 256-token output cap, and model-specific decoding; the aligned adapter comparison uses `summary-v3`, a 1,024-token cap, common greedy decoding, and one pinned judge. Keep the historical baseline separate from the aligned base/adapter results below. Adapter training used public SmolTalk2 data plus private web-document/summary pairs; matching training data across model families has not been established. The goal of making small models' response behavior more consistent is still an aim, not a demonstrated result.
 
 ## Results: models without adapters
 
@@ -35,31 +35,24 @@ Four PEFT LoRA adapters and model cards are published on Hugging Face:
 
 Each adapter adds a small set of LoRA weights to its base model, trained on **document → summary** examples rather than updating the full model. The shared public component is the `HuggingFaceTB/smoltalk2` SFT summarization split, which includes both one-line and three-sentence summary examples. The published mixed-data runs also used the author's private web-summarization pairs. Training examples were prepared for summarization, with the source document as input and the summary as the target; the evaluation articles were kept separate from training.
 
-The goal is to strengthen source-grounded summarization and bring different small models toward a more consistent response contract: objective plain prose, concise for simple material, and more detailed when the source warrants it. “Normalize” here means a shared task and style expectation—not identical summaries or a forced common length. We have not yet established cross-model consistency with a formal style-variance metric. Qwen's measured gains and Granite's mixed findings below show that this is an aim under investigation, not a result every adapter achieved.
+The goal is to strengthen source-grounded summarization and bring different small models toward a more consistent response contract: objective plain prose, concise for simple material, and more detailed when the source warrants it. “Normalize” means a shared task and style expectation—not identical summaries or a forced common length. The aligned comparison below does not establish cross-model consistency; no formal style-variance metric has been run.
 
-### Qwen3.5: measured improvement
+### Aligned comparison: 250 articles
 
-On the larger 250-article battery, both Qwen adapters improved their own base models under matched Q4 inference, a fresh shared prompt (`summary-v3`), and the same generation settings. Ratings are means on the 1–5 judge scale. The experiment used one training seed and bounded early-training checkpoints; public and private training data were mixed.
+All four base/adapter pairs use the same frozen CNN/DailyMail examples, `summary-v3` prompt, greedy decoding, 1,024-token output ceiling, and pinned judge. The Qwen generations were rerun; verified Granite generations were reused, then all eight candidates were judged under the same protocol. Scores are means; judge ratings use a 1–5 scale and ROUGE-L is reference overlap.
 
-| Model | Factuality: base → adapter | Overall quality: base → adapter | Mean words: base → adapter |
-| --- | ---: | ---: | ---: |
-| Qwen3.5-0.8B | 1.596 → **1.976** | 1.600 → **1.924** | 285.2 → **134.3** |
-| Qwen3.5-2B | 1.948 → **2.448** | 1.956 → **2.336** | 329.1 → **157.0** |
+| Model | Factuality: base → adapter | Coverage: base → adapter | Overall: base → adapter | ROUGE-L: base → adapter | Mean words: base → adapter | Cap stops: base → adapter |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Qwen3.5-0.8B | 3.296 → **4.344** | 3.812 → 3.824 | 3.184 → **3.400** | 0.1400 → **0.1693** | 303.9 → 310.5 | 10 → 24 |
+| Qwen3.5-2B | 3.576 → **4.520** | 4.148 → 4.024 | 3.548 → 3.596 | 0.1372 → **0.1599** | 310.6 → 342.4 | 3 → 29 |
+| Granite 4.0-1B | 4.304 → 4.328 | 4.052 → 3.808 | 4.036 → 4.000 | 0.2056 → **0.2237** | 154.9 → 141.9 | 0 → 2 |
+| Granite 4.0-350M | 3.636 → **2.756** | 3.260 → 3.284 | 3.148 → **2.736** | 0.2036 → 0.1956 | 179.4 → 163.8 | 11 → 3 |
 
-Factuality, relevance, concision, overall quality, and ROUGE improved; coverage was approximately unchanged. The shorter summaries still contain factual errors and occasional repetition. Public-only data has **not** been used to reproduce these adapter results. Private records and the Qwen-specific training runner/environment are not included, so the reported mixed-data training experiment is not exactly reproducible from this checkout.
+The results are mixed. Qwen 0.8B improved on factuality, relevance, overall quality, and ROUGE, but its cap stops increased. Qwen 2B improved on factuality, relevance, and ROUGE, while coverage and readability declined, overall quality was inconclusive, and cap stops increased sharply. Granite 1B improved on ROUGE and concision while coverage fell; factuality and overall quality were inconclusive. Granite 350M declined on several judged dimensions, including factuality and overall quality, though cap stops decreased. These are within-model comparisons, not a cross-family ranking or evidence that all adapters improve their bases.
 
-Full protocol, all six judge dimensions, paired intervals, training correctness checks, and limitations: [Qwen adapter results](docs/results/qwen-adapters.md).
+Full paired intervals, all six judge dimensions, generation and judge protocol, and limitations: [aligned adapter comparison](docs/results/aligned-adapter-comparison.md). Earlier family-specific results remain available as historical experiment records: [Qwen adapter report](docs/results/qwen-adapters.md) · [Granite v3 report](docs/results/granite-v3-adapters.md) · [earlier Granite evaluation](docs/results/granite-epoch1-adapter.md) · [Granite training and deployment audit](docs/results/granite-training-audit.md).
 
-### Granite 4.0: mixed exploratory findings
-
-Matched `summary-v3` evaluations are available for both Granite sizes. The 1B adapter improved ROUGE and concision while lowering coverage; factuality and overall-quality differences were inconclusive, and a few outputs tripped automatic guardrails. The 350M adapter had fewer cap/degeneration flags than its base, while factuality, relevance, readability, and overall judge scores were lower. Neither adapter passed the automatic quality-acceptance gate; both are shared as exploratory LoRAs, not quality upgrades.
-
-| Model | Evaluated adapter checkpoint | Factuality: base → adapter | Overall quality: base → adapter | ROUGE-1: base → adapter |
-| --- | --- | ---: | ---: | ---: |
-| Granite 4.0-1B | `early512/checkpoint-128` | 4.288 → 4.308 | 4.024 → 4.004 | 0.3219 → 0.3454 |
-| Granite 4.0-350M | `lr5e5/checkpoint-4456` | 3.620 → 2.744 | 3.124 → 2.736 | 0.3083 → 0.3044 |
-
-Full paired intervals, all judge dimensions, diagnostics, and protocol: [Granite v3 adapter results](docs/results/granite-v3-adapters.md). The earlier 1B checkpoint-3000 report used a different prompt and 256-token cap; it remains a separate training/export milestone, not the matched v3 comparison: [earlier Granite evaluation](docs/results/granite-epoch1-adapter.md) · [Granite training and deployment audit](docs/results/granite-training-audit.md).
+Public and private training data were mixed for the published adapters; the private web-document/summary records and model-specific training recipes are not included in this checkout. The adapters were not trained on an identical controlled corpus across model families, so differences between family outcomes cannot be attributed solely to model architecture or size.
 
 ## Reproduce the public-data experiment
 

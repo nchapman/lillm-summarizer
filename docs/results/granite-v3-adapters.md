@@ -1,5 +1,7 @@
 # Granite 4.0 LoRA adapters: matched v3 evaluation
 
+> **Historical score report.** These generation outputs match the shared greedy protocol and are reused in [aligned-adapter-comparison.md](aligned-adapter-comparison.md), but the scores below came from a mutable judge alias. The current report rejudges all base/adapter candidates with one pinned judge; use it for current comparisons. Training and artifact details below remain useful context.
+
 ## Summary
 
 These are the missing, matched public-news evaluations for the shareable Granite adapters. Both are complete local evaluations; no rerun was needed. Results are **mixed**: the 1B adapter gains on reference overlap and concision, while judged coverage declines and automatic output guardrails flag a few cases. The 350M adapter has fewer cap/degeneration flags than its base, while several judged dimensions—including factuality and overall quality—are lower. These exploratory adapters are shared for experimentation, not presented as quality upgrades.
